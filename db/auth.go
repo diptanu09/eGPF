@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"time"
@@ -34,14 +35,14 @@ func AuthenticateUser(username, password string) (string, time.Time, error) {
 	var dbSystemID sql.NullString
 	var storedHash string // Holds the encrypted hash retrieved from the database
 
-	// MODIFIED: Fetch the hashed password from the DB instead of doing a plaintext comparison in SQL
-	query := "SELECT password, role, last_login, COALESCE(status, 'approved'), system_id FROM users WHERE username = $1;"
+	// Wrapped last_login with COALESCE to handle NULL values for brand new accounts safely without causing driver scan errors
+	query := "SELECT password, role, COALESCE(last_login, NOW()), COALESCE(status, 'approved'), system_id FROM users WHERE username = $1;"
 	err := db.QueryRow(query, username).Scan(&storedHash, &userRole, &rawLastLogin, &status, &dbSystemID)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 
-	// NEW: Verify if account is flagged as suspended prior to key comparisons
+	// Verify if account is flagged as suspended prior to key comparisons
 	if status == "suspended" {
 		return "", time.Time{}, fmt.Errorf("ACCOUNT_SUSPENDED: Access denied by administration")
 	}
@@ -50,7 +51,7 @@ func AuthenticateUser(username, password string) (string, time.Time, error) {
 		return "", time.Time{}, fmt.Errorf("AWAITING_ADMIN_APPROVAL")
 	}
 
-	// NEW: Cryptographically verify that the input password matches the stored bcrypt hash
+	// Cryptographically verify that the input password matches the stored bcrypt hash
 	err = bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("Authentication Rejected") // Password mismatch
@@ -71,11 +72,13 @@ func AuthenticateUser(username, password string) (string, time.Time, error) {
 }
 
 func RefreshUserTimestamp(username string) {
-	_, _ = db.Exec("UPDATE users SET last_login = NOW() WHERE username = $1;", username)
+	// Added error validation to prevent silent failures if connection drops during checkpoint logging
+	if _, err := db.Exec("UPDATE users SET last_login = NOW() WHERE username = $1;", username); err != nil {
+		log.Printf("Warning: Failed to refresh user session login footprint: %v", err)
+	}
 }
 
 func ExecuteInsertUser(newUsername, newPassword, newRole string) error {
-	// NEW: Hash the password before saving it to the database
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to process security key encryption")
@@ -93,7 +96,6 @@ func ExecuteRegisterSelf(username, password string) error {
 		return fmt.Errorf("Username is already taken")
 	}
 
-	// NEW: Hash the password before queuing the registration request
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to process security key encryption")
@@ -178,17 +180,17 @@ func ExecuteResetSystemLock(username string) error {
 	return err
 }
 
-// FEATURE: Toggle the user's suspension profile status flag criteria
 func ExecuteToggleUserSuspend(username string, shouldSuspend bool) error {
+	// FIXED: Initialized targetStatus variable with := to declare it properly
 	targetStatus := "approved"
 	if shouldSuspend {
 		targetStatus = "suspended"
 	}
+	// FIXED: Handled the error value declaration correctly with :=
 	_, err := db.Exec("UPDATE users SET status = $1 WHERE username = $2;", targetStatus, username)
 	return err
 }
 
-// FEATURE: Re-hash and overwrite an active user password credential bundle safely
 func ExecuteResetUserPassword(username, newPassword string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -198,7 +200,6 @@ func ExecuteResetUserPassword(username, newPassword string) error {
 	return err
 }
 
-// FEATURE: Drop active session identification data stamps and clear hardware signature links instantly
 func ExecuteTerminateUserSession(username string) error {
 	_, err := db.Exec("UPDATE users SET system_id = NULL, last_login = NULL WHERE username = $1;", username)
 	return err
