@@ -246,6 +246,42 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 	actionPanel := container.NewHBox()
 
+	// NEW FEATURE: Added View DDO Details lookup context action item button inside panels array
+	actionPanel.Add(widget.NewButtonWithIcon("View DDO Info", theme.InfoIcon(), func() {
+		resetInactivityTimer()
+		if selectedRowIndex == -1 {
+			dialog.ShowInformation("Selection Required", "Please click an active subscriber row in the data grid to resolve DDO metadata details.", window)
+			return
+		}
+
+		ddoCodeTarget := gridData[selectedRowIndex][8]
+		if ddoCodeTarget == "" || ddoCodeTarget == "N/A" || ddoCodeTarget == "0" {
+			dialog.ShowError(fmt.Errorf("Identity Mapping Exception:\nThe highlighted subscriber record space does not hold an active DDO assignment filter link"), window)
+			return
+		}
+
+		ddoInfo, err := db.FetchDDODetails(ddoCodeTarget)
+		if err != nil {
+			dialog.ShowError(err, window)
+			return
+		}
+
+		infoContent := container.NewVBox(
+			widget.NewLabelWithStyle(fmt.Sprintf("DDO Master Code: %s", ddoInfo["ddo_code"]), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewSeparator(),
+			widget.NewLabel(fmt.Sprintf("Official Designation: %s", ddoInfo["ddo_desg"])),
+			widget.NewLabel(fmt.Sprintf("Contact Phone No: %s", ddoInfo["ddo_phone"])),
+			widget.NewLabel(fmt.Sprintf("Secure Network Email: %s", ddoInfo["ddo_email"])),
+			widget.NewLabel(fmt.Sprintf("Treasury Node Office Code: %s", ddoInfo["ddo_tres_code"])),
+			widget.NewLabel(fmt.Sprintf("VLC Assigned Code Matrix: %s", ddoInfo["vlc_ddo_code"])),
+			widget.NewLabelWithStyle(fmt.Sprintf("Gate Authorization PIN String: %s", ddoInfo["pin"]), fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
+		)
+
+		ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
+		ddoModal.Resize(fyne.NewSize(480, 320))
+		ddoModal.Show()
+	}))
+
 	if role == "admin" {
 		actionPanel.Add(widget.NewButtonWithIcon("Add New Series", theme.ContentAddIcon(), func() {
 			resetInactivityTimer()
@@ -328,7 +364,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			dialog.ShowForm("Modify Subscriber Data", "Apply Changes", "Cancel", items, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
-					// MODIFIED: Injects the current username tracker to satisfy audit engine signature constraints
 					err := db.ExecuteUpdateRecord(
 						username, oldSerID, oldAccNo, pinEntry.Text,
 						mobileEntry.Text, designationEntry.Text, oldSerID, oldAccNo,
@@ -359,7 +394,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			dialog.ShowConfirm("Confirm Drop Action", confirmMsg, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
-					// MODIFIED: Passes username profile parameters inside execution pipelines
 					if err := db.ExecuteDeleteRecord(username, targetSerID, targetAccNo); err == nil {
 						syncUiViewGrid(selectedSearchSeriesID, searchAccountBox.Text, searchNameBox.Text, false)
 					} else {
@@ -394,7 +428,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 						dialog.ShowError(fmt.Errorf("Validation Error: Fields cannot be left empty"), window)
 						return
 					}
-					err := db.ExecuteInsertUser(userEntry.Text, passEntry.Text, roleSelect.Selected)
+					err := db.ExecuteInsertUser(username, userEntry.Text, passEntry.Text, roleSelect.Selected)
 					if err == nil {
 						msg := fmt.Sprintf("Success: Profile assigned for '%s' with role clearance [%s].", userEntry.Text, roleSelect.Selected)
 						dialog.ShowInformation("Identity Registered", msg, window)
@@ -465,7 +499,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 								dialog.ShowError(fmt.Errorf("Security Constraint: You cannot alter your own clearance level"), window)
 								return
 							}
-							err := db.ExecuteUpdateUserRole(uNameLocal, roleDropdown.Selected)
+							err := db.ExecuteUpdateUserRole(username, uNameLocal, roleDropdown.Selected)
 							if err == nil {
 								dialog.ShowInformation("Updated", fmt.Sprintf("User '%s' role is now [%s].", uNameLocal, roleDropdown.Selected), window)
 								contextOverlayModal.Hide()
@@ -487,7 +521,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 								return
 							}
 							isSuspending := (currentStatus == "approved")
-							err := db.ExecuteToggleUserSuspend(uNameLocal, isSuspending)
+							err := db.ExecuteToggleUserSuspend(username, uNameLocal, isSuspending)
 							if err == nil {
 								actionWord := "activated"
 								if isSuspending {
@@ -515,7 +549,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 								dialog.ShowError(fmt.Errorf("Validation Exception:\nPassword input string constraint cannot be blank"), window)
 								return
 							}
-							err := db.ExecuteResetUserPassword(uNameLocal, newPassEntry.Text)
+							err := db.ExecuteResetUserPassword(username, uNameLocal, newPassEntry.Text)
 							if err == nil {
 								dialog.ShowInformation("Security Overwrite Done", fmt.Sprintf("Secure credential hash reassigned for user: %s", uNameLocal), window)
 								newPassEntry.SetText("")
@@ -529,7 +563,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 							dialog.ShowConfirm("Kill Core Session Context?", fmt.Sprintf("Force session logouts and unbind physical device locked signatures for '%s'?", uNameLocal), func(confirm bool) {
 								resetInactivityTimer()
 								if confirm {
-									err := db.ExecuteTerminateUserSession(uNameLocal)
+									err := db.ExecuteTerminateUserSession(username, uNameLocal)
 									if err == nil {
 										dialog.ShowInformation("Session Flushed", fmt.Sprintf("All active environment sessions and matching system fingerprints dropped for '%s'.", uNameLocal), window)
 										contextOverlayModal.Hide()
@@ -636,7 +670,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		}))
 
 		// =======================================================
-		// ✨ IMPROVED: LIVE SELF-REGISTRATION APPROVAL PANEL
+		// LIVE SELF-REGISTRATION APPROVAL PANEL WITH AUDIT LOGGING
 		// =======================================================
 		var approvalButton *widget.Button
 		var currentApprovalModal dialog.Dialog
@@ -660,7 +694,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				return
 			}
 
-			// If list is fully cleared out, close modal automatically and show status update
 			if len(pendingUsers) == 0 {
 				if currentApprovalModal != nil {
 					currentApprovalModal.Hide()
@@ -688,12 +721,12 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 				approveBtn := widget.NewButtonWithIcon("Approve", theme.ConfirmIcon(), func() {
 					resetInactivityTimer()
-					if err := db.ExecuteProcessApproval(uNameLocal, roleSel.Selected, true); err == nil {
+					if err := db.ExecuteProcessApproval(username, uNameLocal, roleSel.Selected, true); err == nil {
 						refreshApprovalButtonState()
 						if currentApprovalModal != nil {
 							currentApprovalModal.Hide()
 						}
-						renderApprovalQueueList() // Recursive live rendering update engine trigger
+						renderApprovalQueueList()
 					} else {
 						dialog.ShowError(err, window)
 					}
@@ -702,12 +735,12 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 				textRejectBtn := widget.NewButtonWithIcon("Reject Request", theme.CancelIcon(), func() {
 					resetInactivityTimer()
-					if err := db.ExecuteProcessApproval(uNameLocal, "", false); err == nil {
+					if err := db.ExecuteProcessApproval(username, uNameLocal, "", false); err == nil {
 						refreshApprovalButtonState()
 						if currentApprovalModal != nil {
 							currentApprovalModal.Hide()
 						}
-						renderApprovalQueueList() // Refresh live screen view coordinates instantly
+						renderApprovalQueueList()
 					} else {
 						dialog.ShowError(err, window)
 					}

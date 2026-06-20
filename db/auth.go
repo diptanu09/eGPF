@@ -78,7 +78,8 @@ func RefreshUserTimestamp(username string) {
 	}
 }
 
-func ExecuteInsertUser(newUsername, newPassword, newRole string) error {
+// AUDIT HOOK: Added operator tracker parameter and automated system log write execution path
+func ExecuteInsertUser(operator, newUsername, newPassword, newRole string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to process security key encryption")
@@ -86,6 +87,10 @@ func ExecuteInsertUser(newUsername, newPassword, newRole string) error {
 
 	queryStr := "INSERT INTO users (username, password, role, last_login, status) VALUES ($1, $2, $3, NOW(), 'approved');"
 	_, err = db.Exec(queryStr, newUsername, string(hashedPassword), newRole)
+	if err == nil {
+		details := fmt.Sprintf("Provisioned new system user profile: %s with role clearance level [%s]", newUsername, newRole)
+		_ = ExecuteInsertAuditLog(operator, "CREATE_USER", details)
+	}
 	return err
 }
 
@@ -129,12 +134,21 @@ func FetchPendingUsers() ([]string, error) {
 	return users, nil
 }
 
-func ExecuteProcessApproval(targetUser, assignedRole string, approve bool) error {
+// AUDIT HOOK: Captures external administrative approvals or purges from registration queue
+func ExecuteProcessApproval(operator, targetUser, assignedRole string, approve bool) error {
 	if approve {
 		_, err := db.Exec("UPDATE users SET status = 'approved', role = $1 WHERE username = $2;", assignedRole, targetUser)
+		if err == nil {
+			details := fmt.Sprintf("Approved user registration: %s assigned to clearance level [%s]", targetUser, assignedRole)
+			_ = ExecuteInsertAuditLog(operator, "APPROVE_USER_REGISTRATION", details)
+		}
 		return err
 	}
 	_, err := db.Exec("DELETE FROM users WHERE username = $1 AND status = 'pending';", targetUser)
+	if err == nil {
+		details := fmt.Sprintf("Rejected and purged user registration request from queue: %s", targetUser)
+		_ = ExecuteInsertAuditLog(operator, "REJECT_USER_REGISTRATION", details)
+	}
 	return err
 }
 
@@ -170,37 +184,64 @@ func FetchSystemUsers(searchFilter string) ([][]string, error) {
 	return directoryData, nil
 }
 
-func ExecuteUpdateUserRole(username, newRole string) error {
+// AUDIT HOOK: Logs administrative modifications to role levels
+func ExecuteUpdateUserRole(operator, username, newRole string) error {
 	_, err := db.Exec("UPDATE users SET role = $1 WHERE username = $2;", newRole, username)
+	if err == nil {
+		details := fmt.Sprintf("Altered user profile authorization level: target account=%s changed to role=%s", username, newRole)
+		_ = ExecuteInsertAuditLog(operator, "UPDATE_USER_ROLE", details)
+	}
 	return err
 }
 
-func ExecuteResetSystemLock(username string) error {
+// AUDIT HOOK: Added hardware lock tracking checkpoint logging execution bounds
+func ExecuteResetSystemLock(operator, username string) error {
 	_, err := db.Exec("UPDATE users SET system_id = NULL WHERE username = $1;", username)
+	if err == nil {
+		details := fmt.Sprintf("Cleared terminal physical workstation locking reference context for: %s", username)
+		_ = ExecuteInsertAuditLog(operator, "RESET_SYSTEM_LOCK", details)
+	}
 	return err
 }
 
-func ExecuteToggleUserSuspend(username string, shouldSuspend bool) error {
-	// FIXED: Initialized targetStatus variable with := to declare it properly
+// AUDIT HOOK: Tracks account suspension and reactivation flags
+func ExecuteToggleUserSuspend(operator, username string, shouldSuspend bool) error {
 	targetStatus := "approved"
+	actionWord := "Reactivated"
+	logType := "REACTIVATE_USER"
 	if shouldSuspend {
 		targetStatus = "suspended"
+		actionWord = "Suspended"
+		logType = "SUSPEND_USER"
 	}
-	// FIXED: Handled the error value declaration correctly with :=
 	_, err := db.Exec("UPDATE users SET status = $1 WHERE username = $2;", targetStatus, username)
+	if err == nil {
+		details := fmt.Sprintf("%s user profile account space context: target account=%s", actionWord, username)
+		_ = ExecuteInsertAuditLog(operator, logType, details)
+	}
 	return err
 }
 
-func ExecuteResetUserPassword(username, newPassword string) error {
+// AUDIT HOOK: Records execution vectors for forced administrative security key overrides
+func ExecuteResetUserPassword(operator, username, newPassword string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to process password re-encryption sequence")
 	}
 	_, err = db.Exec("UPDATE users SET password = $1 WHERE username = $2;", string(hashedPassword), username)
+	if err == nil {
+		details := fmt.Sprintf("Executed administrative security password reset hash overwrite targeting profile: %s", username)
+		_ = ExecuteInsertAuditLog(operator, "RESET_USER_PASSWORD", details)
+	}
 	return err
 }
 
-func ExecuteTerminateUserSession(username string) error {
+// AUDIT HOOK: Logs live workstation signature unbinding drop sequences
+func ExecuteTerminateUserSession(operator, username string) error {
 	_, err := db.Exec("UPDATE users SET system_id = NULL, last_login = NULL WHERE username = $1;", username)
+	if err == nil {
+		details := fmt.Sprintf("Forced live session token teardown and dropped system biometric fingerprints for operator user profile: %s", username)
+		_ = ExecuteInsertAuditLog(operator, "TERMINATE_USER_SESSION", details)
+	}
 	return err
 }

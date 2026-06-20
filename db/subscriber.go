@@ -95,7 +95,6 @@ func ExecuteInsertRecord(series, account, pin string) error {
 	return err
 }
 
-// MODIFIED: Accepts operator string parameter and writes system audit trails automatically
 func ExecuteUpdateRecord(operator, newSeries, newAccount, newPin, newMobile, newDesignation, oldSeries, oldAccount string) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -134,7 +133,6 @@ func ExecuteUpdateRecord(operator, newSeries, newAccount, newPin, newMobile, new
 		return err
 	}
 
-	// Queue audit entry trace inside transactional scope boundaries
 	logDetails := fmt.Sprintf("Updated series %s, account %s. Set Designation=%s, Mobile=%s", newSeries, newAccount, newDesignation, newMobile)
 	if auditErr := ExecuteInsertAuditLog(operator, "UPDATE_RECORD", logDetails); auditErr != nil {
 		return fmt.Errorf("audit checkpoint failure: %w", auditErr)
@@ -143,7 +141,6 @@ func ExecuteUpdateRecord(operator, newSeries, newAccount, newPin, newMobile, new
 	return tx.Commit()
 }
 
-// MODIFIED: Tracks dropping actions to prevent untraceable information deletions
 func ExecuteDeleteRecord(operator, series, account string) error {
 	_, err := db.Exec("DELETE FROM subscriber_login_details WHERE series_id = $1 AND account_no = $2;", series, account)
 	if err == nil {
@@ -163,4 +160,44 @@ func ExecuteInsertSeries(seriesID string, seriesName string) error {
 		return fmt.Errorf("failed to register new system master series: %w", err)
 	}
 	return nil
+}
+
+// NEW FUNCTION: Fetches joined details from mm_ddo and ddo_login tables safely
+func FetchDDODetails(ddoCode string) (map[string]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database handle uninitialized")
+	}
+
+	queryStr := `
+		SELECT 
+			COALESCE(d.ddo_code, ''), 
+			COALESCE(d.ddo_desg, 'N/A'), 
+			COALESCE(d.ddo_phone, 'N/A'), 
+			COALESCE(d.ddo_email, 'N/A'), 
+			COALESCE(d.ddo_tres_code, 'N/A'), 
+			COALESCE(d.vlc_ddo_code, 'N/A'),
+			COALESCE(l.pin, COALESCE(d.pin, 'N/A')) AS security_pin
+		FROM agartala.mm_ddo d
+		LEFT JOIN agartala.ddo_login l ON d.ddo_code = l.ddo_code
+		WHERE d.ddo_code = $1;`
+
+	var code, desg, phone, email, tresCode, vlcCode, pin string
+	err := db.QueryRow(queryStr, ddoCode).Scan(&code, &desg, &phone, &email, &tresCode, &vlcCode, &pin)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no DDO master configuration registry found matching code: %s", ddoCode)
+		}
+		return nil, err
+	}
+
+	result := map[string]string{
+		"ddo_code":      code,
+		"ddo_desg":      desg,
+		"ddo_phone":     phone,
+		"ddo_email":     email,
+		"ddo_tres_code": tresCode,
+		"vlc_ddo_code":  vlcCode,
+		"pin":           pin,
+	}
+	return result, nil
 }
