@@ -1,0 +1,17 @@
+# Build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go workspace
+bin/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
