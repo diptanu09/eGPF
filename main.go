@@ -21,8 +21,8 @@ func main() {
 	myApp := app.New()
 
 	// Load and set the application icon for the runtime title bar
-	// Ensure assets/logo.png exists in your project directory
-	icon, err := fyne.LoadResourceFromPath("assets/logo.png")
+	// Ensure assets/app.ico exists in your project directory
+	icon, err := fyne.LoadResourceFromPath("assets/app.ico")
 	if err == nil {
 		myApp.SetIcon(icon)
 	}
