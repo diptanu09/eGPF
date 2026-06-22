@@ -201,7 +201,6 @@ func FetchDDODetails(ddoCode string) (map[string]string, error) {
 	return result, nil
 }
 
-// NEW FUNCTION: Queries the database registry with matching filters to populate standalone DDO directory panels
 func FetchAllDDOMasterProfiles(filterCode string) ([][]string, error) {
 	directoryRows := [][]string{}
 	if db == nil {
@@ -243,4 +242,43 @@ func FetchAllDDOMasterProfiles(filterCode string) ([][]string, error) {
 		}
 	}
 	return directoryRows, nil
+}
+
+func ExecuteResetSubscriberPIN(operator, seriesID, accountNo, newPIN string) error {
+	if db == nil {
+		return fmt.Errorf("database instance handle uninitialized")
+	}
+
+	queryStr := "UPDATE agartala.subscriber_login_details SET pin = $1 WHERE series_id = $2 AND account_no = $3;"
+	_, err := db.Exec(queryStr, newPIN, seriesID, accountNo)
+	if err == nil {
+		details := fmt.Sprintf("Overwrote subscriber gateway access PIN targeting Series: %s, Account Number: %s", seriesID, accountNo)
+		_ = ExecuteInsertAuditLog(operator, "RESET_SUBSCRIBER_PIN", details)
+	}
+	return err
+}
+
+// NEW FUNCTION: Provisions a brand new subscriber logging record cleanly into subscriber_login_details table
+func ExecuteCreateNewSubscriber(operator, seriesID, accountNo, initialPIN string) error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+
+	var exists bool
+	checkQuery := "SELECT EXISTS(SELECT 1 FROM agartala.subscriber_login_details WHERE series_id = $1 AND account_no = $2);"
+	err := db.QueryRow(checkQuery, seriesID, accountNo).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return fmt.Errorf("account mapping registration violation: subscriber account %s already exists under series %s", accountNo, seriesID)
+	}
+
+	insertQuery := "INSERT INTO agartala.subscriber_login_details (series_id, account_no, pin) VALUES ($1, $2, $3);"
+	_, err = db.Exec(insertQuery, seriesID, accountNo, initialPIN)
+	if err == nil {
+		details := fmt.Sprintf("Created new master subscriber account mapping. Series: %s, Account No: %s", seriesID, accountNo)
+		_ = ExecuteInsertAuditLog(operator, "CREATE_SUBSCRIBER_ACCOUNT", details)
+	}
+	return err
 }

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math/rand"
 	"net/url"
 	"sort"
 	"sync"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.2.0.1"
+	CurrentClientVersion   = "2.2.0.2"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute // ⏱️ AUTOMATIC SESSION TIMEOUT BOUNDARY DEFINITION
 )
@@ -90,7 +91,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				isSessionActive = false
 				activityLock.Unlock()
 
-				// FIXED: Cleanly force drop and hide all open dialog overlay window objects instantly
+				// Cleanly force drop and hide all open dialog overlay window objects instantly
 				clearAllActiveDialogs()
 
 				dialog.ShowInformation("🛡️ Security Timeout", "Your terminal session context was terminated automatically due to inactivity.", window)
@@ -306,7 +307,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 		ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
 		ddoModal.Resize(fyne.NewSize(480, 320))
-		trackDialog(ddoModal) // Register to active tracks list array
+		trackDialog(ddoModal)
 		ddoModal.Show()
 	}))
 
@@ -316,11 +317,10 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		ddoSearchBox := widget.NewEntry()
 		ddoSearchBox.SetPlaceHolder("Enter criteria to search DDO Master by Code...")
 
-		// FIXED: Set TextWrapWord and modified the padding heights to ensure text wraps fully and columns expand dynamically
 		createCustomCell := func(text string, style fyne.TextStyle, minWidth float32) fyne.CanvasObject {
 			lbl := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, style)
-			lbl.Wrapping = fyne.TextWrapWord                              // Enabled word wrap to prevent cutoffs
-			return container.NewGridWrap(fyne.NewSize(minWidth, 48), lbl) // Raised height limit boundary from 32 to 48
+			lbl.Wrapping = fyne.TextWrapWord
+			return container.NewGridWrap(fyne.NewSize(minWidth, 48), lbl)
 		}
 
 		renderDdoDirectoryRows := func(filter string) {
@@ -337,12 +337,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				return
 			}
 
-			// FIXED SIZES: Expanded columns to prevent cutoffs on designation or network email fields
 			headerRow := container.NewHBox(
 				createCustomCell("DDO Code", fyne.TextStyle{Bold: true}, 90),
-				createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 260), // Raised width from 220 to 260
+				createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 260),
 				createCustomCell("Phone Number", fyne.TextStyle{Bold: true}, 130),
-				createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 260), // Raised width from 220 to 260
+				createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 260),
 				createCustomCell("Treasury Code", fyne.TextStyle{Bold: true}, 120),
 				createCustomCell("VLC Code", fyne.TextStyle{Bold: true}, 110),
 				createCustomCell("Gate PIN", fyne.TextStyle{Bold: true}, 90),
@@ -357,13 +356,13 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				}
 
 				rowLayout := container.NewHBox(
-					createCustomCell(p[0], fyne.TextStyle{}, 90),                        // Code
-					createCustomCell(p[1], fyne.TextStyle{}, 260),                       // Desg
-					createCustomCell(p[2], fyne.TextStyle{}, 130),                       // Phone
-					createCustomCell(p[3], fyne.TextStyle{}, 260),                       // Email
-					createCustomCell(p[4], fyne.TextStyle{}, 120),                       // Treasury Code
-					createCustomCell(p[5], fyne.TextStyle{}, 110),                       // VLC Code
-					createCustomCell(rowPin, fyne.TextStyle{Bold: role == "admin"}, 90), // PIN
+					createCustomCell(p[0], fyne.TextStyle{}, 90),
+					createCustomCell(p[1], fyne.TextStyle{}, 260),
+					createCustomCell(p[2], fyne.TextStyle{}, 130),
+					createCustomCell(p[3], fyne.TextStyle{}, 260),
+					createCustomCell(p[4], fyne.TextStyle{}, 120),
+					createCustomCell(p[5], fyne.TextStyle{}, 110),
+					createCustomCell(rowPin, fyne.TextStyle{Bold: role == "admin"}, 90),
 				)
 				ddoListContainer.Add(rowLayout)
 			}
@@ -390,9 +389,112 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		)
 		ddoDirModal := dialog.NewCustom("Enterprise DDO Master Information Portal", "Close Directory View", portalContent, window)
 		ddoDirModal.Resize(fyne.NewSize(1150, 540))
-		trackDialog(ddoDirModal) // Track inside state slice to guarantee clean termination on session loss
+		trackDialog(ddoDirModal)
 		ddoDirModal.Show()
 	}))
+
+	if canWrite {
+		actionPanel.Add(widget.NewButtonWithIcon("Assign Subscriber PIN", theme.SettingsIcon(), func() {
+			resetInactivityTimer()
+
+			generateRandom4DigitPIN := func() string {
+				r := rand.New(rand.NewSource(time.Now().UnixNano()))
+				return fmt.Sprintf("%04d", r.Intn(10000))
+			}
+
+			if selectedRowIndex == -1 {
+				newAccountNoEntry := widget.NewEntry()
+				newAccountNoEntry.SetPlaceHolder("Enter numeric subscriber account no... (e.g. 54321)")
+
+				seriesSelectDropdown := widget.NewSelect(seriesOptions, nil)
+				seriesSelectDropdown.PlaceHolder = "[Select Master Series Category]"
+
+				initialPinField := widget.NewEntry()
+				initialPinField.SetPlaceHolder("Assign or auto-generate initial access PIN...")
+
+				// FIXED: Replaced non-existent theme.ContentRefreshIcon with valid theme.ViewRefreshIcon
+				autoGenBtn := widget.NewButtonWithIcon("Auto-Generate 4-Digit PIN", theme.ViewRefreshIcon(), func() {
+					resetInactivityTimer()
+					initialPinField.SetText(generateRandom4DigitPIN())
+				})
+
+				formItems := []*widget.FormItem{
+					widget.NewFormItem("Choose Master Fund Series", seriesSelectDropdown),
+					widget.NewFormItem("New Account Number Input", newAccountNoEntry),
+					widget.NewFormItem("Initial Access Gate PIN Key", initialPinField),
+					widget.NewFormItem("Automated Provisioning", autoGenBtn),
+				}
+
+				createSubscriberDialog := dialog.NewForm("Register New System Subscriber Profile", "Create Subscriber Account", "Cancel", formItems, func(confirmed bool) {
+					resetInactivityTimer()
+					if confirmed {
+						if seriesSelectDropdown.Selected == "" || newAccountNoEntry.Text == "" || initialPinField.Text == "" {
+							dialog.ShowError(fmt.Errorf("Validation Failure Exception:\nAll registration payload parameters must be filled completely"), window)
+							return
+						}
+
+						resolvedSeriesID := seriesMap[seriesSelectDropdown.Selected]
+						err := db.ExecuteCreateNewSubscriber(username, resolvedSeriesID, newAccountNoEntry.Text, initialPinField.Text)
+						if err == nil {
+							dialog.ShowInformation("Registration Complete", fmt.Sprintf("Successfully registered new system subscriber account profile!\nSeries ID: %s\nAccount No: %s", resolvedSeriesID, newAccountNoEntry.Text), window)
+							syncUiViewGrid(resolvedSeriesID, newAccountNoEntry.Text, "", false)
+						} else {
+							dialog.ShowError(err, window)
+						}
+					}
+				}, window)
+
+				createSubscriberDialog.Resize(fyne.NewSize(500, 310))
+				trackDialog(createSubscriberDialog)
+				createSubscriberDialog.Show()
+				return
+			}
+
+			rawSeriesStr := gridData[selectedRowIndex][0]
+			var parsedSeriesID string
+			fmt.Sscanf(rawSeriesStr, "%s", &parsedSeriesID)
+			targetAccountNo := gridData[selectedRowIndex][1]
+			targetName := gridData[selectedRowIndex][2]
+
+			pinEntryField := widget.NewEntry()
+			pinEntryField.SetPlaceHolder("Enter or generate new alphanumeric or numeric access PIN...")
+
+			// FIXED: Replaced non-existent theme.ContentRefreshIcon with valid theme.ViewRefreshIcon
+			autoGenResetBtn := widget.NewButtonWithIcon("Auto-Generate 4-Digit PIN", theme.ViewRefreshIcon(), func() {
+				resetInactivityTimer()
+				pinEntryField.SetText(generateRandom4DigitPIN())
+			})
+
+			formItems := []*widget.FormItem{
+				widget.NewFormItem("Subscriber Name [Locked]", widget.NewLabel(targetName)),
+				widget.NewFormItem("Account No [Locked]", widget.NewLabel(targetAccountNo)),
+				widget.NewFormItem("New Gate PIN String", pinEntryField),
+				widget.NewFormItem("Automated Provisioning", autoGenResetBtn),
+			}
+
+			pinResetDialog := dialog.NewForm("Modify Subscriber Portal Gate PIN", "Assign New PIN", "Cancel", formItems, func(confirmed bool) {
+				resetInactivityTimer()
+				if confirmed {
+					if pinEntryField.Text == "" {
+						dialog.ShowError(fmt.Errorf("Validation Error: Subscriber PIN payload string constraint cannot be left empty"), window)
+						return
+					}
+
+					err := db.ExecuteResetSubscriberPIN(username, parsedSeriesID, targetAccountNo, pinEntryField.Text)
+					if err == nil {
+						dialog.ShowInformation("Execution Complete", fmt.Sprintf("Successfully assigned new synchronization gate access token credentials for: %s", targetName), window)
+						syncUiViewGrid(parsedSeriesID, targetAccountNo, "", false)
+					} else {
+						dialog.ShowError(fmt.Errorf("Database Rejection Error: %v", err), window)
+					}
+				}
+			}, window)
+
+			pinResetDialog.Resize(fyne.NewSize(480, 290))
+			trackDialog(pinResetDialog)
+			pinResetDialog.Show()
+		}))
+	}
 
 	if role == "admin" {
 		actionPanel.Add(widget.NewButtonWithIcon("Add New Series", theme.ContentAddIcon(), func() {
@@ -775,7 +877,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				widget.NewFormItem("Deployment Download/Shared Path", pathEntry),
 			}
 
-			versionDialog := dialog.NewForm("Modify Distribution Setup Metadata", "Publish Update Rules", "Cancel", formItems, func(confirmed bool) {
+			var versionDialog dialog.Dialog
+			versionDialog = dialog.NewForm("Modify Distribution Setup Metadata", "Publish Update Rules", "Cancel", formItems, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
 					if verEntry.Text == "" || pathEntry.Text == "" {
