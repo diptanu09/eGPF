@@ -246,7 +246,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 	actionPanel := container.NewHBox()
 
-	// NEW FEATURE: Added View DDO Details lookup context action item button inside panels array
 	actionPanel.Add(widget.NewButtonWithIcon("View DDO Info", theme.InfoIcon(), func() {
 		resetInactivityTimer()
 		if selectedRowIndex == -1 {
@@ -280,6 +279,75 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
 		ddoModal.Resize(fyne.NewSize(480, 320))
 		ddoModal.Show()
+	}))
+
+	// NEW FEATURE: Standalone DDO Master Directory search management terminal console view portal dashboard entrypoint
+	actionPanel.Add(widget.NewButtonWithIcon("DDO Master Directory", theme.SearchIcon(), func() {
+		resetInactivityTimer()
+		ddoListContainer := container.NewVBox()
+		ddoSearchBox := widget.NewEntry()
+		ddoSearchBox.SetPlaceHolder("Enter criteria to search DDO Master by Code...")
+
+		renderDdoDirectoryRows := func(filter string) {
+			ddoListContainer.Objects = nil
+			ddoProfiles, err := db.FetchAllDDOMasterProfiles(filter)
+			if err != nil {
+				ddoListContainer.Add(widget.NewLabel("System error loading DDO Master records registry."))
+				return
+			}
+
+			if len(ddoProfiles) == 0 {
+				ddoListContainer.Add(widget.NewLabel("No DDO Master registry configurations match search criteria."))
+				ddoListContainer.Refresh()
+				return
+			}
+
+			headerRow := container.NewGridWithColumns(7,
+				widget.NewLabelWithStyle("DDO Code", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabelWithStyle("Official Designation", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabelWithStyle("Phone Number", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabelWithStyle("Network Email", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabelWithStyle("Treasury Code", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabelWithStyle("VLC Code", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabelWithStyle("Gate PIN", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			)
+			ddoListContainer.Add(headerRow)
+			ddoListContainer.Add(widget.NewSeparator())
+
+			for _, p := range ddoProfiles {
+				rowLayout := container.NewGridWithColumns(7,
+					widget.NewLabel(p[0]), // Code
+					widget.NewLabel(p[1]), // Desg
+					widget.NewLabel(p[2]), // Phone
+					widget.NewLabel(p[3]), // Email
+					widget.NewLabel(p[4]), // Treasury Code
+					widget.NewLabel(p[5]), // VLC Code
+					widget.NewLabelWithStyle(p[6], fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), // PIN
+				)
+				ddoListContainer.Add(rowLayout)
+			}
+			ddoListContainer.Refresh()
+		}
+
+		ddoSearchBox.OnChanged = func(term string) {
+			resetInactivityTimer()
+			renderDdoDirectoryRows(term)
+		}
+		renderDdoDirectoryRows("")
+
+		scrollPanel := container.NewScroll(ddoListContainer)
+		scrollPanel.SetMinSize(fyne.NewSize(1100, 420))
+
+		portalContent := container.NewBorder(
+			container.NewVBox(
+				widget.NewLabelWithStyle("🏢 Drawing & Disbursing Officer (DDO) Master Registry Console", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
+				ddoSearchBox,
+				widget.NewSeparator(),
+			),
+			nil, nil, nil,
+			scrollPanel,
+		)
+		dialog.ShowCustom("Enterprise DDO Master Information Portal", "Close Directory View", portalContent, window)
 	}))
 
 	if role == "admin" {

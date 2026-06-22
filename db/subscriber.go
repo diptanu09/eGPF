@@ -162,7 +162,6 @@ func ExecuteInsertSeries(seriesID string, seriesName string) error {
 	return nil
 }
 
-// NEW FUNCTION: Fetches joined details from mm_ddo and ddo_login tables safely
 func FetchDDODetails(ddoCode string) (map[string]string, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database handle uninitialized")
@@ -200,4 +199,48 @@ func FetchDDODetails(ddoCode string) (map[string]string, error) {
 		"pin":           pin,
 	}
 	return result, nil
+}
+
+// NEW FUNCTION: Queries the database registry with matching filters to populate standalone DDO directory panels
+func FetchAllDDOMasterProfiles(filterCode string) ([][]string, error) {
+	directoryRows := [][]string{}
+	if db == nil {
+		return directoryRows, fmt.Errorf("database session handle context uninitialized")
+	}
+
+	baseQuery := `
+		SELECT 
+			COALESCE(d.ddo_code, ''), 
+			COALESCE(d.ddo_desg, 'N/A'), 
+			COALESCE(d.ddo_phone, 'N/A'), 
+			COALESCE(d.ddo_email, 'N/A'), 
+			COALESCE(d.ddo_tres_code, 'N/A'), 
+			COALESCE(d.vlc_ddo_code, 'N/A'),
+			COALESCE(l.pin, COALESCE(d.pin, 'N/A')) AS security_pin
+		FROM agartala.mm_ddo d
+		LEFT JOIN agartala.ddo_login l ON d.ddo_code = l.ddo_code`
+
+	var rows *sql.Rows
+	var err error
+
+	if filterCode != "" {
+		queryStr := baseQuery + " WHERE d.ddo_code LIKE $1 ORDER BY d.ddo_code ASC LIMIT 100;"
+		rows, err = db.Query(queryStr, "%"+filterCode+"%")
+	} else {
+		queryStr := baseQuery + " ORDER BY d.ddo_code ASC LIMIT 100;"
+		rows, err = db.Query(queryStr)
+	}
+
+	if err != nil {
+		return directoryRows, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var code, desg, phone, email, tres, vlc, pin string
+		if err := rows.Scan(&code, &desg, &phone, &email, &tres, &vlc, &pin); err == nil {
+			directoryRows = append(directoryRows, []string{code, desg, phone, email, tres, vlc, pin})
+		}
+	}
+	return directoryRows, nil
 }
