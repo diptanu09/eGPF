@@ -4,7 +4,6 @@ package main
 import (
 	"log"
 
-	"fyne.io/fyne/v2" // Added for Resource loading
 	"fyne.io/fyne/v2/app"
 
 	"egpf-app/db"
@@ -20,16 +19,19 @@ func main() {
 	// 2. Provision window framing contexts
 	myApp := app.New()
 
-	// Load and set the application icon for the runtime title bar
-	// Ensure assets/app.ico exists in your project directory
-	icon, err := fyne.LoadResourceFromPath("assets/app.ico")
-	if err == nil {
-		myApp.SetIcon(icon)
+	// 3. Set embedded icon globally on the App instance
+	if ui.ResourceLogoPng != nil {
+		myApp.SetIcon(ui.ResourceLogoPng)
 	}
 
 	myWindow := myApp.NewWindow("eGPF Management System Gateway")
 
-	// 3. Mount login portal view entrypoint
+	// 4. Force the embedded icon onto the active window manager frame
+	if ui.ResourceLogoPng != nil {
+		myWindow.SetIcon(ui.ResourceLogoPng)
+	}
+
+	// 5. Mount login portal view entrypoint
 	ui.RenderLoginView(myApp, myWindow)
 
 	myWindow.ShowAndRun()

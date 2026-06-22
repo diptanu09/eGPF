@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 
-	"egpf-app/config"
 	"egpf-app/db"
 
 	"fyne.io/fyne/v2"
@@ -19,8 +18,13 @@ func RenderLoginView(app fyne.App, window fyne.Window) {
 	window.Resize(fyne.NewSize(450, 600))
 	window.CenterOnScreen()
 
-	// Path updated to look into assets/ subfolder
-	logoImg := canvas.NewImageFromFile("assets/logo.png")
+	// FIXED: Use the embedded static resource instead of an external file path
+	var logoImg *canvas.Image
+	if ResourceLogoPng != nil {
+		logoImg = canvas.NewImageFromResource(ResourceLogoPng)
+	} else {
+		logoImg = canvas.NewImageFromResource(theme.AccountIcon())
+	}
 	logoImg.FillMode = canvas.ImageFillContain
 	logoImg.SetMinSize(fyne.NewSize(110, 110))
 
@@ -83,8 +87,9 @@ func RenderLoginView(app fyne.App, window fyne.Window) {
 		footerText,
 	)
 
+	// FIXED: Tied labels directly to the dashboard version constraints to bypass obfuscation drops
 	loginFooterLabel := widget.NewLabelWithStyle(
-		fmt.Sprintf("System Registry Core v%s\n%s", config.CurrentClientVersion, config.CopyrightInfo),
+		fmt.Sprintf("System Registry Core v%s\n%s", CurrentClientVersion, CopyrightInfo),
 		fyne.TextAlignCenter,
 		fyne.TextStyle{Italic: true},
 	)
