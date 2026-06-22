@@ -37,6 +37,16 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	}}
 	selectedRowIndex = -1
 
+	// Fetch database state dynamic rule set definitions configuration parameters map
+	sysPerms, _ := db.FetchApplicationPermissions()
+
+	// Dynamic validation evaluations mapping security credentials variables
+	canWrite := (role == "admin" || (role == "operator" && sysPerms["operator_can_write"]))
+	canDelete := (role == "admin")
+	canManageUsers := (role == "admin")
+	canAssignSubscriberPin := (role == "admin" || (role == "operator" && sysPerms["operator_can_assign_pin"]))
+	canViewDdoData := (role == "admin" || role == "operator" || (role == "user" && sysPerms["user_can_view_ddo"]))
+
 	// 🔒 Thread-safe tracking of open overlay components to clear windows completely on timeout
 	var activeDialogs []dialog.Dialog
 	var dialogsLock sync.Mutex
@@ -91,7 +101,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				isSessionActive = false
 				activityLock.Unlock()
 
-				// Cleanly force drop and hide all open dialog overlay window objects instantly
 				clearAllActiveDialogs()
 
 				dialog.ShowInformation("🛡️ Security Timeout", "Your terminal session context was terminated automatically due to inactivity.", window)
@@ -148,10 +157,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			)
 		}
 	}()
-
-	canWrite := (role == "admin" || role == "operator")
-	canDelete := (role == "admin")
-	canManageUsers := (role == "admin")
 
 	seriesOptions, seriesMap, err := db.FetchSeriesDropdownOptions()
 	if err != nil {
@@ -270,130 +275,132 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 	actionPanel := container.NewHBox()
 
-	actionPanel.Add(widget.NewButtonWithIcon("View DDO Info", theme.InfoIcon(), func() {
-		resetInactivityTimer()
-		if selectedRowIndex == -1 {
-			dialog.ShowInformation("Selection Required", "Please click an active subscriber row in the data grid to resolve DDO metadata details.", window)
-			return
-		}
+	if canViewDdoData {
+		actionPanel.Add(widget.NewButtonWithIcon("View DDO Info", theme.InfoIcon(), func() {
+			resetInactivityTimer()
+			if selectedRowIndex == -1 {
+				dialog.ShowInformation("Selection Required", "Please click an active subscriber row in the data grid to resolve DDO metadata details.", window)
+				return
+			}
 
-		ddoCodeTarget := gridData[selectedRowIndex][8]
-		if ddoCodeTarget == "" || ddoCodeTarget == "N/A" || ddoCodeTarget == "0" {
-			dialog.ShowError(fmt.Errorf("Identity Mapping Exception:\nThe highlighted subscriber record space does not hold an active DDO assignment filter link"), window)
-			return
-		}
+			ddoCodeTarget := gridData[selectedRowIndex][8]
+			if ddoCodeTarget == "" || ddoCodeTarget == "N/A" || ddoCodeTarget == "0" {
+				dialog.ShowError(fmt.Errorf("Identity Mapping Exception:\nThe highlighted subscriber record space does not hold an active DDO assignment filter link"), window)
+				return
+			}
 
-		ddoInfo, err := db.FetchDDODetails(ddoCodeTarget)
-		if err != nil {
-			dialog.ShowError(err, window)
-			return
-		}
-
-		displayPin := ddoInfo["pin"]
-		if role != "admin" {
-			displayPin = "[REDACTED - ADMIN CLEARANCE REQUIRED]"
-		}
-
-		infoContent := container.NewVBox(
-			widget.NewLabelWithStyle(fmt.Sprintf("DDO Master Code: %s", ddoInfo["ddo_code"]), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			widget.NewSeparator(),
-			widget.NewLabel(fmt.Sprintf("Official Designation: %s", ddoInfo["ddo_desg"])),
-			widget.NewLabel(fmt.Sprintf("Contact Phone No: %s", ddoInfo["ddo_phone"])),
-			widget.NewLabel(fmt.Sprintf("Secure Network Email: %s", ddoInfo["ddo_email"])),
-			widget.NewLabel(fmt.Sprintf("Treasury Node Office Code: %s", ddoInfo["ddo_tres_code"])),
-			widget.NewLabel(fmt.Sprintf("VLC Assigned Code Matrix: %s", ddoInfo["vlc_ddo_code"])),
-			widget.NewLabelWithStyle(fmt.Sprintf("Gate Authorization PIN String: %s", displayPin), fyne.TextAlignLeading, fyne.TextStyle{Italic: true, Bold: role == "admin"}),
-		)
-
-		ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
-		ddoModal.Resize(fyne.NewSize(480, 320))
-		trackDialog(ddoModal)
-		ddoModal.Show()
-	}))
-
-	actionPanel.Add(widget.NewButtonWithIcon("DDO Master Directory", theme.SearchIcon(), func() {
-		resetInactivityTimer()
-		ddoListContainer := container.NewVBox()
-		ddoSearchBox := widget.NewEntry()
-		ddoSearchBox.SetPlaceHolder("Enter criteria to search DDO Master by Code...")
-
-		createCustomCell := func(text string, style fyne.TextStyle, minWidth float32) fyne.CanvasObject {
-			lbl := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, style)
-			lbl.Wrapping = fyne.TextWrapWord
-			return container.NewGridWrap(fyne.NewSize(minWidth, 48), lbl)
-		}
-
-		renderDdoDirectoryRows := func(filter string) {
-			ddoListContainer.Objects = nil
-			ddoProfiles, err := db.FetchAllDDOMasterProfiles(filter)
+			ddoInfo, err := db.FetchDDODetails(ddoCodeTarget)
 			if err != nil {
-				ddoListContainer.Add(widget.NewLabel("System error loading DDO Master records registry."))
+				dialog.ShowError(err, window)
 				return
 			}
 
-			if len(ddoProfiles) == 0 {
-				ddoListContainer.Add(widget.NewLabel("No DDO Master registry configurations match search criteria."))
-				ddoListContainer.Refresh()
-				return
+			displayPin := ddoInfo["pin"]
+			if role != "admin" {
+				displayPin = "[REDACTED - ADMIN CLEARANCE REQUIRED]"
 			}
 
-			headerRow := container.NewHBox(
-				createCustomCell("DDO Code", fyne.TextStyle{Bold: true}, 90),
-				createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 260),
-				createCustomCell("Phone Number", fyne.TextStyle{Bold: true}, 130),
-				createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 260),
-				createCustomCell("Treasury Code", fyne.TextStyle{Bold: true}, 120),
-				createCustomCell("VLC Code", fyne.TextStyle{Bold: true}, 110),
-				createCustomCell("Gate PIN", fyne.TextStyle{Bold: true}, 90),
+			infoContent := container.NewVBox(
+				widget.NewLabelWithStyle(fmt.Sprintf("DDO Master Code: %s", ddoInfo["ddo_code"]), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewSeparator(),
+				widget.NewLabel(fmt.Sprintf("Official Designation: %s", ddoInfo["ddo_desg"])),
+				widget.NewLabel(fmt.Sprintf("Contact Phone No: %s", ddoInfo["ddo_phone"])),
+				widget.NewLabel(fmt.Sprintf("Secure Network Email: %s", ddoInfo["ddo_email"])),
+				widget.NewLabel(fmt.Sprintf("Treasury Node Office Code: %s", ddoInfo["ddo_tres_code"])),
+				widget.NewLabel(fmt.Sprintf("VLC Assigned Code Matrix: %s", ddoInfo["vlc_ddo_code"])),
+				widget.NewLabelWithStyle(fmt.Sprintf("Gate Authorization PIN String: %s", displayPin), fyne.TextAlignLeading, fyne.TextStyle{Italic: true, Bold: role == "admin"}),
 			)
-			ddoListContainer.Add(headerRow)
-			ddoListContainer.Add(widget.NewSeparator())
 
-			for _, p := range ddoProfiles {
-				rowPin := p[6]
-				if role != "admin" {
-					rowPin = "****"
+			ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
+			ddoModal.Resize(fyne.NewSize(480, 320))
+			trackDialog(ddoModal)
+			ddoModal.Show()
+		}))
+
+		actionPanel.Add(widget.NewButtonWithIcon("DDO Master Directory", theme.SearchIcon(), func() {
+			resetInactivityTimer()
+			ddoListContainer := container.NewVBox()
+			ddoSearchBox := widget.NewEntry()
+			ddoSearchBox.SetPlaceHolder("Enter criteria to search DDO Master by Code...")
+
+			createCustomCell := func(text string, style fyne.TextStyle, minWidth float32) fyne.CanvasObject {
+				lbl := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, style)
+				lbl.Wrapping = fyne.TextWrapWord
+				return container.NewGridWrap(fyne.NewSize(minWidth, 48), lbl)
+			}
+
+			renderDdoDirectoryRows := func(filter string) {
+				ddoListContainer.Objects = nil
+				ddoProfiles, err := db.FetchAllDDOMasterProfiles(filter)
+				if err != nil {
+					ddoListContainer.Add(widget.NewLabel("System error loading DDO Master records registry."))
+					return
 				}
 
-				rowLayout := container.NewHBox(
-					createCustomCell(p[0], fyne.TextStyle{}, 90),
-					createCustomCell(p[1], fyne.TextStyle{}, 260),
-					createCustomCell(p[2], fyne.TextStyle{}, 130),
-					createCustomCell(p[3], fyne.TextStyle{}, 260),
-					createCustomCell(p[4], fyne.TextStyle{}, 120),
-					createCustomCell(p[5], fyne.TextStyle{}, 110),
-					createCustomCell(rowPin, fyne.TextStyle{Bold: role == "admin"}, 90),
+				if len(ddoProfiles) == 0 {
+					ddoListContainer.Add(widget.NewLabel("No DDO Master registry configurations match search criteria."))
+					ddoListContainer.Refresh()
+					return
+				}
+
+				headerRow := container.NewHBox(
+					createCustomCell("DDO Code", fyne.TextStyle{Bold: true}, 90),
+					createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 260),
+					createCustomCell("Phone Number", fyne.TextStyle{Bold: true}, 130),
+					createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 260),
+					createCustomCell("Treasury Code", fyne.TextStyle{Bold: true}, 120),
+					createCustomCell("VLC Code", fyne.TextStyle{Bold: true}, 110),
+					createCustomCell("Gate PIN", fyne.TextStyle{Bold: true}, 90),
 				)
-				ddoListContainer.Add(rowLayout)
+				ddoListContainer.Add(headerRow)
+				ddoListContainer.Add(widget.NewSeparator())
+
+				for _, p := range ddoProfiles {
+					rowPin := p[6]
+					if role != "admin" {
+						rowPin = "****"
+					}
+
+					rowLayout := container.NewHBox(
+						createCustomCell(p[0], fyne.TextStyle{}, 90),
+						createCustomCell(p[1], fyne.TextStyle{}, 260),
+						createCustomCell(p[2], fyne.TextStyle{}, 130),
+						createCustomCell(p[3], fyne.TextStyle{}, 260),
+						createCustomCell(p[4], fyne.TextStyle{}, 120),
+						createCustomCell(p[5], fyne.TextStyle{}, 110),
+						createCustomCell(rowPin, fyne.TextStyle{Bold: role == "admin"}, 90),
+					)
+					ddoListContainer.Add(rowLayout)
+				}
+				ddoListContainer.Refresh()
 			}
-			ddoListContainer.Refresh()
-		}
 
-		ddoSearchBox.OnChanged = func(term string) {
-			resetInactivityTimer()
-			renderDdoDirectoryRows(term)
-		}
-		renderDdoDirectoryRows("")
+			ddoSearchBox.OnChanged = func(term string) {
+				resetInactivityTimer()
+				renderDdoDirectoryRows(term)
+			}
+			renderDdoDirectoryRows("")
 
-		scrollPanel := container.NewScroll(ddoListContainer)
-		scrollPanel.SetMinSize(fyne.NewSize(1100, 420))
+			scrollPanel := container.NewScroll(ddoListContainer)
+			scrollPanel.SetMinSize(fyne.NewSize(1100, 420))
 
-		portalContent := container.NewBorder(
-			container.NewVBox(
-				widget.NewLabelWithStyle("🏢 Drawing & Disbursing Officer (DDO) Master Registry Console", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
-				ddoSearchBox,
-				widget.NewSeparator(),
-			),
-			nil, nil, nil,
-			scrollPanel,
-		)
-		ddoDirModal := dialog.NewCustom("Enterprise DDO Master Information Portal", "Close Directory View", portalContent, window)
-		ddoDirModal.Resize(fyne.NewSize(1150, 540))
-		trackDialog(ddoDirModal)
-		ddoDirModal.Show()
-	}))
+			portalContent := container.NewBorder(
+				container.NewVBox(
+					widget.NewLabelWithStyle("🏢 Drawing & Disbursing Officer (DDO) Master Registry Console", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
+					ddoSearchBox,
+					widget.NewSeparator(),
+				),
+				nil, nil, nil,
+				scrollPanel,
+			)
+			ddoDirModal := dialog.NewCustom("Enterprise DDO Master Information Portal", "Close Directory View", portalContent, window)
+			ddoDirModal.Resize(fyne.NewSize(1150, 540))
+			trackDialog(ddoDirModal)
+			ddoDirModal.Show()
+		}))
+	}
 
-	if canWrite {
+	if canAssignSubscriberPin {
 		actionPanel.Add(widget.NewButtonWithIcon("Assign Subscriber PIN", theme.SettingsIcon(), func() {
 			resetInactivityTimer()
 
@@ -412,7 +419,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				initialPinField := widget.NewEntry()
 				initialPinField.SetPlaceHolder("Assign or auto-generate initial access PIN...")
 
-				// FIXED: Replaced non-existent theme.ContentRefreshIcon with valid theme.ViewRefreshIcon
 				autoGenBtn := widget.NewButtonWithIcon("Auto-Generate 4-Digit PIN", theme.ViewRefreshIcon(), func() {
 					resetInactivityTimer()
 					initialPinField.SetText(generateRandom4DigitPIN())
@@ -459,7 +465,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			pinEntryField := widget.NewEntry()
 			pinEntryField.SetPlaceHolder("Enter or generate new alphanumeric or numeric access PIN...")
 
-			// FIXED: Replaced non-existent theme.ContentRefreshIcon with valid theme.ViewRefreshIcon
 			autoGenResetBtn := widget.NewButtonWithIcon("Auto-Generate 4-Digit PIN", theme.ViewRefreshIcon(), func() {
 				resetInactivityTimer()
 				pinEntryField.SetText(generateRandom4DigitPIN())
@@ -897,6 +902,55 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			versionDialog.Show()
 		}))
 
+		// REFINED FIXED DIALOG ARGS: Configured explicit Save configurations callback via standalone dialog actions buttons layout definitions
+		actionPanel.Add(widget.NewButtonWithIcon("Feature Permissions", theme.GridIcon(), func() {
+			resetInactivityTimer()
+
+			freshPerms, _ := db.FetchApplicationPermissions()
+
+			opWriteCheck := widget.NewCheck("Allow 'operators' to Write/Update subscriber database entries", nil)
+			opWriteCheck.SetChecked(freshPerms["operator_can_write"])
+
+			opPinCheck := widget.NewCheck("Allow 'operators' to Provision/Assign Subscriber access PIN keys", nil)
+			opPinCheck.SetChecked(freshPerms["operator_can_assign_pin"])
+
+			userDdoCheck := widget.NewCheck("Allow basic 'users' role path access to View DDO master registries", nil)
+			userDdoCheck.SetChecked(freshPerms["user_can_view_ddo"])
+
+			var permFormDialog dialog.Dialog
+
+			saveBtn := widget.NewButtonWithIcon("Save Configuration Rules", theme.DocumentSaveIcon(), func() {
+				resetInactivityTimer()
+				_ = db.ExecuteSavePermissionToggle(username, "operator_can_write", opWriteCheck.Checked)
+				_ = db.ExecuteSavePermissionToggle(username, "operator_can_assign_pin", opPinCheck.Checked)
+				_ = db.ExecuteSavePermissionToggle(username, "user_can_view_ddo", userDdoCheck.Checked)
+
+				if permFormDialog != nil {
+					permFormDialog.Hide()
+				}
+				dialog.ShowInformation("Permissions Saved", "Dynamic access rule adjustments deployed successfully.\n\nChanges will apply instantly across running terminal spaces.", window)
+			})
+			saveBtn.Importance = widget.HighImportance
+
+			modalContent := container.NewVBox(
+				widget.NewLabelWithStyle("🛡️ System Feature Authorizations Matrix Control Console", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
+				widget.NewLabel("Check or uncheck features below to dynamically alter active operational capabilities for roles across the deployment:"),
+				widget.NewSeparator(),
+				opWriteCheck,
+				widget.NewSeparator(),
+				opPinCheck,
+				widget.NewSeparator(),
+				userDdoCheck,
+				widget.NewSeparator(),
+				saveBtn,
+			)
+
+			permFormDialog = dialog.NewCustom("System Access Permissions Administration", "Cancel", modalContent, window)
+			permFormDialog.Resize(fyne.NewSize(580, 390))
+			trackDialog(permFormDialog)
+			permFormDialog.Show()
+		}))
+
 		var approvalButton *widget.Button
 		var currentApprovalModal dialog.Dialog
 		var renderApprovalQueueList func()
@@ -1054,6 +1108,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	dashLogo.FillMode = canvas.ImageFillContain
 	dashLogo.SetMinSize(fyne.NewSize(75, 75))
 
+	// FIXED INITIALIZATIONS: Initialized text and bound it smoothly inside the card configuration frame
 	profileText := fmt.Sprintf("Operator ID: %s\nClearance: User Secure %s\nSession Start: %s", username, role, lastLogin)
 	profileCard := widget.NewCard("eGPF Operational Core Enterprise Dashboard", "Secure Session Profile Context", widget.NewLabel(profileText))
 

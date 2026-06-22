@@ -258,7 +258,6 @@ func ExecuteResetSubscriberPIN(operator, seriesID, accountNo, newPIN string) err
 	return err
 }
 
-// NEW FUNCTION: Provisions a brand new subscriber logging record cleanly into subscriber_login_details table
 func ExecuteCreateNewSubscriber(operator, seriesID, accountNo, initialPIN string) error {
 	if db == nil {
 		return fmt.Errorf("database handle uninitialized")
@@ -279,6 +278,62 @@ func ExecuteCreateNewSubscriber(operator, seriesID, accountNo, initialPIN string
 	if err == nil {
 		details := fmt.Sprintf("Created new master subscriber account mapping. Series: %s, Account No: %s", seriesID, accountNo)
 		_ = ExecuteInsertAuditLog(operator, "CREATE_SUBSCRIBER_ACCOUNT", details)
+	}
+	return err
+}
+
+// NEW FUNCTION: Fetches the configured permission set map from the database configurations table
+func FetchApplicationPermissions() (map[string]bool, error) {
+	perms := map[string]bool{
+		"operator_can_write":      true, // Default safe configurations fallbacks
+		"operator_can_assign_pin": false,
+		"user_can_view_ddo":       true,
+	}
+	if db == nil {
+		return perms, nil
+	}
+
+	rows, err := db.Query("SELECT config_key, config_value FROM agartala.system_config WHERE config_key LIKE 'perm_%';")
+	if err != nil {
+		return perms, nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err == nil {
+			trimmedKey := k[5:] // Extract rule identifier context trailing 'perm_' prefix
+			perms[trimmedKey] = (v == "true" || v == "1" || v == "YES")
+		}
+	}
+	return perms, nil
+}
+
+// NEW FUNCTION: Toggles permission flag values inside database storage layer with audit logs
+func ExecuteSavePermissionToggle(operator, ruleKey string, allowed bool) error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+
+	dbKey := "perm_" + ruleKey
+	dbValue := "false"
+	if allowed {
+		dbValue = "true"
+	}
+
+	var exists bool
+	_ = db.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.system_config WHERE config_key = $1);", dbKey).Scan(&exists)
+
+	var err error
+	if exists {
+		_, err = db.Exec("UPDATE agartala.system_config SET config_value = $1 WHERE config_key = $2;", dbValue, dbKey)
+	} else {
+		_, err = db.Exec("INSERT INTO agartala.system_config (config_key, config_value) VALUES ($1, $2);", dbKey, dbValue)
+	}
+
+	if err == nil {
+		details := fmt.Sprintf("Modified application authorization rule: configuration %s altered to clearance value [%s]", ruleKey, dbValue)
+		_ = ExecuteInsertAuditLog(operator, "ALTER_ACCESS_PERMISSIONS", details)
 	}
 	return err
 }
