@@ -265,6 +265,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			return
 		}
 
+		displayPin := ddoInfo["pin"]
+		if role != "admin" {
+			displayPin = "[REDACTED - ADMIN CLEARANCE REQUIRED]"
+		}
+
 		infoContent := container.NewVBox(
 			widget.NewLabelWithStyle(fmt.Sprintf("DDO Master Code: %s", ddoInfo["ddo_code"]), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewSeparator(),
@@ -273,7 +278,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			widget.NewLabel(fmt.Sprintf("Secure Network Email: %s", ddoInfo["ddo_email"])),
 			widget.NewLabel(fmt.Sprintf("Treasury Node Office Code: %s", ddoInfo["ddo_tres_code"])),
 			widget.NewLabel(fmt.Sprintf("VLC Assigned Code Matrix: %s", ddoInfo["vlc_ddo_code"])),
-			widget.NewLabelWithStyle(fmt.Sprintf("Gate Authorization PIN String: %s", ddoInfo["pin"]), fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
+			widget.NewLabelWithStyle(fmt.Sprintf("Gate Authorization PIN String: %s", displayPin), fyne.TextAlignLeading, fyne.TextStyle{Italic: true, Bold: role == "admin"}),
 		)
 
 		ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
@@ -281,12 +286,18 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		ddoModal.Show()
 	}))
 
-	// NEW FEATURE: Standalone DDO Master Directory search management terminal console view portal dashboard entrypoint
 	actionPanel.Add(widget.NewButtonWithIcon("DDO Master Directory", theme.SearchIcon(), func() {
 		resetInactivityTimer()
 		ddoListContainer := container.NewVBox()
 		ddoSearchBox := widget.NewEntry()
 		ddoSearchBox.SetPlaceHolder("Enter criteria to search DDO Master by Code...")
+
+		// Helper function to create cleanly padded custom cells matching explicit layout parameters
+		createCustomCell := func(text string, style fyne.TextStyle, minWidth float32) fyne.CanvasObject {
+			lbl := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, style)
+			lbl.Wrapping = fyne.TextTruncate
+			return container.NewGridWrap(fyne.NewSize(minWidth, 32), lbl)
+		}
 
 		renderDdoDirectoryRows := func(filter string) {
 			ddoListContainer.Objects = nil
@@ -302,27 +313,34 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				return
 			}
 
-			headerRow := container.NewGridWithColumns(7,
-				widget.NewLabelWithStyle("DDO Code", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				widget.NewLabelWithStyle("Official Designation", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				widget.NewLabelWithStyle("Phone Number", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				widget.NewLabelWithStyle("Network Email", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				widget.NewLabelWithStyle("Treasury Code", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				widget.NewLabelWithStyle("VLC Code", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				widget.NewLabelWithStyle("Gate PIN", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			// FIXED COLUMN SIZES: Each column header is wrapped inside specific sizing boundaries
+			headerRow := container.NewHBox(
+				createCustomCell("DDO Code", fyne.TextStyle{Bold: true}, 100),
+				createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 220),
+				createCustomCell("Phone Number", fyne.TextStyle{Bold: true}, 130),
+				createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 220),
+				createCustomCell("Treasury Code", fyne.TextStyle{Bold: true}, 120),
+				createCustomCell("VLC Code", fyne.TextStyle{Bold: true}, 110),
+				createCustomCell("Gate PIN", fyne.TextStyle{Bold: true}, 90),
 			)
 			ddoListContainer.Add(headerRow)
 			ddoListContainer.Add(widget.NewSeparator())
 
 			for _, p := range ddoProfiles {
-				rowLayout := container.NewGridWithColumns(7,
-					widget.NewLabel(p[0]), // Code
-					widget.NewLabel(p[1]), // Desg
-					widget.NewLabel(p[2]), // Phone
-					widget.NewLabel(p[3]), // Email
-					widget.NewLabel(p[4]), // Treasury Code
-					widget.NewLabel(p[5]), // VLC Code
-					widget.NewLabelWithStyle(p[6], fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), // PIN
+				rowPin := p[6]
+				if role != "admin" {
+					rowPin = "****"
+				}
+
+				// FIXED COLUMN SIZES: Data fields match header geometry perfectly via NewHBox container configurations
+				rowLayout := container.NewHBox(
+					createCustomCell(p[0], fyne.TextStyle{}, 100),                       // Code
+					createCustomCell(p[1], fyne.TextStyle{}, 220),                       // Desg
+					createCustomCell(p[2], fyne.TextStyle{}, 130),                       // Phone
+					createCustomCell(p[3], fyne.TextStyle{}, 220),                       // Email
+					createCustomCell(p[4], fyne.TextStyle{}, 120),                       // Treasury Code
+					createCustomCell(p[5], fyne.TextStyle{}, 110),                       // VLC Code
+					createCustomCell(rowPin, fyne.TextStyle{Bold: role == "admin"}, 90), // PIN
 				)
 				ddoListContainer.Add(rowLayout)
 			}
@@ -336,7 +354,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		renderDdoDirectoryRows("")
 
 		scrollPanel := container.NewScroll(ddoListContainer)
-		scrollPanel.SetMinSize(fyne.NewSize(1100, 420))
+		scrollPanel.SetMinSize(fyne.NewSize(1050, 420))
 
 		portalContent := container.NewBorder(
 			container.NewVBox(
