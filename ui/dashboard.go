@@ -36,7 +36,27 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	}}
 	selectedRowIndex = -1
 
-	// 🔒 Thread-safe activity metrics parameters tracking
+	// 🔒 Thread-safe tracking of open overlay components to clear windows completely on timeout
+	var activeDialogs []dialog.Dialog
+	var dialogsLock sync.Mutex
+
+	trackDialog := func(d dialog.Dialog) {
+		dialogsLock.Lock()
+		activeDialogs = append(activeDialogs, d)
+		dialogsLock.Unlock()
+	}
+
+	clearAllActiveDialogs := func() {
+		dialogsLock.Lock()
+		for _, d := range activeDialogs {
+			if d != nil {
+				d.Hide()
+			}
+		}
+		activeDialogs = nil
+		dialogsLock.Unlock()
+	}
+
 	var activityLock sync.Mutex
 	lastActivityTime := time.Now()
 	isSessionActive := true
@@ -47,7 +67,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		activityLock.Unlock()
 	}
 
-	// Automatically update activity timestamp when user interacts via keyboard context entries
 	window.Canvas().SetOnTypedKey(func(k *fyne.KeyEvent) {
 		resetInactivityTimer()
 	})
@@ -71,7 +90,9 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				isSessionActive = false
 				activityLock.Unlock()
 
-				// Directly execute UI state modifications and view shifts (Safe in Fyne v2.4.0)
+				// FIXED: Cleanly force drop and hide all open dialog overlay window objects instantly
+				clearAllActiveDialogs()
+
 				dialog.ShowInformation("🛡️ Security Timeout", "Your terminal session context was terminated automatically due to inactivity.", window)
 				gridData = [][]string{{
 					"Series ID & Name", "Account Number", "Subscriber Name",
@@ -108,6 +129,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 							activityLock.Lock()
 							isSessionActive = false
 							activityLock.Unlock()
+
+							clearAllActiveDialogs()
 
 							gridData = [][]string{{
 								"Series ID & Name", "Account Number", "Subscriber Name",
@@ -283,6 +306,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 		ddoModal := dialog.NewCustom("Drawing and Disbursing Officer (DDO) Master Reference", "Close View", infoContent, window)
 		ddoModal.Resize(fyne.NewSize(480, 320))
+		trackDialog(ddoModal) // Register to active tracks list array
 		ddoModal.Show()
 	}))
 
@@ -292,11 +316,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		ddoSearchBox := widget.NewEntry()
 		ddoSearchBox.SetPlaceHolder("Enter criteria to search DDO Master by Code...")
 
-		// Helper function to create cleanly padded custom cells matching explicit layout parameters
+		// FIXED: Set TextWrapWord and modified the padding heights to ensure text wraps fully and columns expand dynamically
 		createCustomCell := func(text string, style fyne.TextStyle, minWidth float32) fyne.CanvasObject {
 			lbl := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, style)
-			lbl.Wrapping = fyne.TextTruncate
-			return container.NewGridWrap(fyne.NewSize(minWidth, 32), lbl)
+			lbl.Wrapping = fyne.TextWrapWord                              // Enabled word wrap to prevent cutoffs
+			return container.NewGridWrap(fyne.NewSize(minWidth, 48), lbl) // Raised height limit boundary from 32 to 48
 		}
 
 		renderDdoDirectoryRows := func(filter string) {
@@ -313,12 +337,12 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				return
 			}
 
-			// FIXED COLUMN SIZES: Each column header is wrapped inside specific sizing boundaries
+			// FIXED SIZES: Expanded columns to prevent cutoffs on designation or network email fields
 			headerRow := container.NewHBox(
-				createCustomCell("DDO Code", fyne.TextStyle{Bold: true}, 100),
-				createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 220),
+				createCustomCell("DDO Code", fyne.TextStyle{Bold: true}, 90),
+				createCustomCell("Official Designation", fyne.TextStyle{Bold: true}, 260), // Raised width from 220 to 260
 				createCustomCell("Phone Number", fyne.TextStyle{Bold: true}, 130),
-				createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 220),
+				createCustomCell("Network Email", fyne.TextStyle{Bold: true}, 260), // Raised width from 220 to 260
 				createCustomCell("Treasury Code", fyne.TextStyle{Bold: true}, 120),
 				createCustomCell("VLC Code", fyne.TextStyle{Bold: true}, 110),
 				createCustomCell("Gate PIN", fyne.TextStyle{Bold: true}, 90),
@@ -332,12 +356,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					rowPin = "****"
 				}
 
-				// FIXED COLUMN SIZES: Data fields match header geometry perfectly via NewHBox container configurations
 				rowLayout := container.NewHBox(
-					createCustomCell(p[0], fyne.TextStyle{}, 100),                       // Code
-					createCustomCell(p[1], fyne.TextStyle{}, 220),                       // Desg
+					createCustomCell(p[0], fyne.TextStyle{}, 90),                        // Code
+					createCustomCell(p[1], fyne.TextStyle{}, 260),                       // Desg
 					createCustomCell(p[2], fyne.TextStyle{}, 130),                       // Phone
-					createCustomCell(p[3], fyne.TextStyle{}, 220),                       // Email
+					createCustomCell(p[3], fyne.TextStyle{}, 260),                       // Email
 					createCustomCell(p[4], fyne.TextStyle{}, 120),                       // Treasury Code
 					createCustomCell(p[5], fyne.TextStyle{}, 110),                       // VLC Code
 					createCustomCell(rowPin, fyne.TextStyle{Bold: role == "admin"}, 90), // PIN
@@ -354,7 +377,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		renderDdoDirectoryRows("")
 
 		scrollPanel := container.NewScroll(ddoListContainer)
-		scrollPanel.SetMinSize(fyne.NewSize(1050, 420))
+		scrollPanel.SetMinSize(fyne.NewSize(1100, 420))
 
 		portalContent := container.NewBorder(
 			container.NewVBox(
@@ -365,7 +388,10 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			nil, nil, nil,
 			scrollPanel,
 		)
-		dialog.ShowCustom("Enterprise DDO Master Information Portal", "Close Directory View", portalContent, window)
+		ddoDirModal := dialog.NewCustom("Enterprise DDO Master Information Portal", "Close Directory View", portalContent, window)
+		ddoDirModal.Resize(fyne.NewSize(1150, 540))
+		trackDialog(ddoDirModal) // Track inside state slice to guarantee clean termination on session loss
+		ddoDirModal.Show()
 	}))
 
 	if role == "admin" {
@@ -382,7 +408,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				widget.NewFormItem("Series Name", seriesNameEntry),
 			}
 
-			dialog.ShowForm("Configure New System Series", "Save Series Definition", "Cancel", formItems, func(confirmed bool) {
+			seriesDialog := dialog.NewForm("Configure New System Series", "Save Series Definition", "Cancel", formItems, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
 					if seriesIDEntry.Text == "" || seriesNameEntry.Text == "" {
@@ -412,6 +438,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					}
 				}
 			}, window)
+			trackDialog(seriesDialog)
+			seriesDialog.Show()
 		}))
 	}
 
@@ -447,7 +475,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				widget.NewFormItem("Mobile No.", mobileEntry),
 				widget.NewFormItem("PIN Code", pinEntry),
 			}
-			dialog.ShowForm("Modify Subscriber Data", "Apply Changes", "Cancel", items, func(confirmed bool) {
+			updateDialog := dialog.NewForm("Modify Subscriber Data", "Apply Changes", "Cancel", items, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
 					err := db.ExecuteUpdateRecord(
@@ -461,6 +489,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					}
 				}
 			}, window)
+			trackDialog(updateDialog)
+			updateDialog.Show()
 		}))
 	}
 
@@ -477,7 +507,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			targetAccNo := gridData[selectedRowIndex][1]
 			confirmMsg := fmt.Sprintf("Permanently drop subscriber record?\nSeries ID Target: %s\nAccount: %s", targetSerID, targetAccNo)
 
-			dialog.ShowConfirm("Confirm Drop Action", confirmMsg, func(confirmed bool) {
+			deleteDialog := dialog.NewConfirm("Confirm Drop Action", confirmMsg, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
 					if err := db.ExecuteDeleteRecord(username, targetSerID, targetAccNo); err == nil {
@@ -487,6 +517,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					}
 				}
 			}, window)
+			trackDialog(deleteDialog)
+			deleteDialog.Show()
 		}))
 	}
 
@@ -507,7 +539,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				widget.NewFormItem("Clearance Role", roleSelect),
 			}
 
-			dialog.ShowForm("Provision New System Terminal User", "Create User", "Cancel", formItems, func(confirmed bool) {
+			addUserDialog := dialog.NewForm("Provision New System Terminal User", "Create User", "Cancel", formItems, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
 					if userEntry.Text == "" || passEntry.Text == "" {
@@ -523,6 +555,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					}
 				}
 			}, window)
+			trackDialog(addUserDialog)
+			addUserDialog.Show()
 		}))
 
 		actionPanel.Add(widget.NewButtonWithIcon("User Directory & Roles", theme.SettingsIcon(), func() {
@@ -684,6 +718,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 						contextOverlayModal = dialog.NewCustom(fmt.Sprintf("Administrative Management Console: %s", uNameLocal), "Close Console", modalLayout, window)
 						contextOverlayModal.Resize(fyne.NewSize(520, 500))
+						trackDialog(contextOverlayModal)
 						contextOverlayModal.Show()
 					})
 
@@ -717,7 +752,9 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				nil, nil, nil,
 				scrollPanel,
 			)
-			dialog.ShowCustom("Enterprise Master User Management Console", "Close View", portalContent, window)
+			userDirDialog := dialog.NewCustom("Enterprise Master User Management Console", "Close View", portalContent, window)
+			trackDialog(userDirDialog)
+			userDirDialog.Show()
 		}))
 
 		actionPanel.Add(widget.NewButtonWithIcon("App Version Control", theme.InfoIcon(), func() {
@@ -738,7 +775,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				widget.NewFormItem("Deployment Download/Shared Path", pathEntry),
 			}
 
-			dialog.ShowForm("Modify Distribution Setup Metadata", "Publish Update Rules", "Cancel", formItems, func(confirmed bool) {
+			versionDialog := dialog.NewForm("Modify Distribution Setup Metadata", "Publish Update Rules", "Cancel", formItems, func(confirmed bool) {
 				resetInactivityTimer()
 				if confirmed {
 					if verEntry.Text == "" || pathEntry.Text == "" {
@@ -753,11 +790,10 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					}
 				}
 			}, window)
+			trackDialog(versionDialog)
+			versionDialog.Show()
 		}))
 
-		// =======================================================
-		// LIVE SELF-REGISTRATION APPROVAL PANEL WITH AUDIT LOGGING
-		// =======================================================
 		var approvalButton *widget.Button
 		var currentApprovalModal dialog.Dialog
 		var renderApprovalQueueList func()
@@ -847,6 +883,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 			currentApprovalModal = dialog.NewCustom("Identity Validation Portal Queue", "Close View", scrollableLayout, window)
 			currentApprovalModal.Resize(fyne.NewSize(700, 380))
+			trackDialog(currentApprovalModal)
 			currentApprovalModal.Show()
 		}
 
@@ -895,6 +932,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				activityLock.Lock()
 				isSessionActive = false
 				activityLock.Unlock()
+
+				clearAllActiveDialogs()
 
 				gridData = [][]string{{
 					"Series ID & Name", "Account Number", "Subscriber Name",
