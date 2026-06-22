@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -18,12 +19,18 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.2.0.2"
+	CurrentClientVersion   = "2.2.0.1"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
 
 var selectedRowIndex int = -1
+
+// FIXED: Lifted to package-level scope to cleanly resolve compiler visibility and use math/rand import safely
+func generateRandom4DigitPIN() string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return fmt.Sprintf("%04d", r.Intn(10000))
+}
 
 func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username string, role string, lastLogin string) {
 	window.Resize(fyne.NewSize(1280, 720))
@@ -221,9 +228,17 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		clearButton,
 	)
 
-	generateRandom4DigitPIN := func() string {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		return fmt.Sprintf("%04d", r.Intn(10000))
+	resolveProfileAvatar := func(targetUser string, width, height float32) fyne.CanvasObject {
+		path := fmt.Sprintf("assets/profiles/%s.png", targetUser)
+		if _, err := os.Stat(path); err != nil {
+			icon := canvas.NewImageFromResource(theme.AccountIcon())
+			icon.SetMinSize(fyne.NewSize(width, height))
+			return icon
+		}
+		img := canvas.NewImageFromFile(path)
+		img.FillMode = canvas.ImageFillContain
+		img.SetMinSize(fyne.NewSize(width, height))
+		return img
 	}
 
 	executeViewDdo := func() {
@@ -492,10 +507,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				}
 
 				userListContainer.Add(container.NewHBox(
+					container.NewGridWrap(fyne.NewSize(40, 32), widget.NewLabel("")),
 					container.NewGridWrap(fyne.NewSize(140, 32), widget.NewLabelWithStyle("Username", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 					container.NewGridWrap(fyne.NewSize(110, 32), widget.NewLabelWithStyle("Clearance", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 					container.NewGridWrap(fyne.NewSize(110, 32), widget.NewLabelWithStyle("Status", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
-					container.NewGridWrap(fyne.NewSize(150, 32), widget.NewLabelWithStyle("Session Footprint", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
+					container.NewGridWrap(fyne.NewSize(200, 32), widget.NewLabelWithStyle("Session Footprint", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 					container.NewGridWrap(fyne.NewSize(140, 32), widget.NewLabelWithStyle("Action Controls", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 				))
 				userListContainer.Add(widget.NewSeparator())
@@ -506,7 +522,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					lastLoginTextLocal := uData[2]
 					currentStatusLocal := uData[3]
 
-					// ATTACHED OPERATIONAL ACCOUNT WORKFLOW MENUS
 					manageAccountBtn := widget.NewButtonWithIcon("Manage Account", theme.SettingsIcon(), func() {
 						resetInactivityTimer()
 						var subConsoleModal dialog.Dialog
@@ -566,7 +581,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 						})
 
 						modalLayout := container.NewVBox(
-							widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+							container.NewHBox(resolveProfileAvatar(uNameLocal, 48, 48), widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 							widget.NewSeparator(),
 							widget.NewLabel("Modify Security Authorization Level:"),
 							container.NewHBox(roleDropdown, saveRoleBtn),
@@ -586,10 +601,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					})
 
 					userListContainer.Add(container.NewHBox(
+						resolveProfileAvatar(uNameLocal, 32, 32),
 						container.NewGridWrap(fyne.NewSize(140, 36), widget.NewLabel(uNameLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentRoleLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentStatusLocal)),
-						container.NewGridWrap(fyne.NewSize(150, 36), widget.NewLabel(lastLoginTextLocal)),
+						container.NewGridWrap(fyne.NewSize(200, 36), widget.NewLabel(lastLoginTextLocal)),
 						container.NewGridWrap(fyne.NewSize(140, 36), manageAccountBtn),
 					))
 				}
@@ -597,7 +613,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			userSearchBox.OnChanged = func(t string) { renderDirectoryRows(t) }
 			renderDirectoryRows("")
 			scrollPanel := container.NewScroll(userListContainer)
-			scrollPanel.SetMinSize(fyne.NewSize(720, 360))
+			scrollPanel.SetMinSize(fyne.NewSize(780, 360))
 			d := dialog.NewCustom("System Operator Registry Directory", "Close Profile Portal", container.NewBorder(userSearchBox, nil, nil, nil, scrollPanel), window)
 			trackDialog(d)
 			d.Show()
@@ -725,7 +741,12 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	dashLogo.SetMinSize(fyne.NewSize(75, 75))
 
 	profileText := fmt.Sprintf("Operator ID: %s\nClearance: Secure %s\nSession Start: %s", username, role, lastLogin)
-	profileCard := widget.NewCard("eGPF Operational Core Enterprise Dashboard", "Secure Profile Scope", widget.NewLabel(profileText))
+
+	profileHeaderLayout := container.NewHBox(
+		resolveProfileAvatar(username, 52, 52),
+		widget.NewLabel(profileText),
+	)
+	profileCard := widget.NewCard("eGPF Operational Core Enterprise Dashboard", "Secure Profile Scope", profileHeaderLayout)
 
 	headerLayout := container.NewBorder(nil, nil, nil, container.NewHBox(container.NewPadded(dashLogo), logoutButton), profileCard)
 
