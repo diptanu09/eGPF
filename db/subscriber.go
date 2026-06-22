@@ -282,10 +282,10 @@ func ExecuteCreateNewSubscriber(operator, seriesID, accountNo, initialPIN string
 	return err
 }
 
-// NEW FUNCTION: Fetches the configured permission set map from the database configurations table
+// UPDATED FUNCTION: Resolves explicit per-user and per-role permissions dynamically
 func FetchApplicationPermissions() (map[string]bool, error) {
 	perms := map[string]bool{
-		"operator_can_write":      true, // Default safe configurations fallbacks
+		"operator_can_write":      true,
 		"operator_can_assign_pin": false,
 		"user_can_view_ddo":       true,
 	}
@@ -302,20 +302,25 @@ func FetchApplicationPermissions() (map[string]bool, error) {
 	for rows.Next() {
 		var k, v string
 		if err := rows.Scan(&k, &v); err == nil {
-			trimmedKey := k[5:] // Extract rule identifier context trailing 'perm_' prefix
-			perms[trimmedKey] = (v == "true" || v == "1" || v == "YES")
+			trimmedKey := k[5:] // Trim away 'perm_' prefix
+			perms[trimmedKey] = (v == "true" || v == "1")
 		}
 	}
 	return perms, nil
 }
 
-// NEW FUNCTION: Toggles permission flag values inside database storage layer with audit logs
-func ExecuteSavePermissionToggle(operator, ruleKey string, allowed bool) error {
+// UPDATED FUNCTION: Persists dynamic permissions target mappings, accepting standard rule spaces or per-user configurations
+func ExecuteSavePermissionToggle(operator, targetScope, ruleKey string, allowed bool) error {
 	if db == nil {
 		return fmt.Errorf("database handle uninitialized")
 	}
 
-	dbKey := "perm_" + ruleKey
+	// targetScope can be "role" or a specific username (e.g., "diptanu")
+	dbKey := fmt.Sprintf("perm_%s_%s", targetScope, ruleKey)
+	if targetScope == "role" {
+		dbKey = "perm_" + ruleKey
+	}
+
 	dbValue := "false"
 	if allowed {
 		dbValue = "true"
@@ -332,8 +337,36 @@ func ExecuteSavePermissionToggle(operator, ruleKey string, allowed bool) error {
 	}
 
 	if err == nil {
-		details := fmt.Sprintf("Modified application authorization rule: configuration %s altered to clearance value [%s]", ruleKey, dbValue)
+		details := fmt.Sprintf("Updated granular authorization rule: target %s context %s set to [%s]", targetScope, ruleKey, dbValue)
 		_ = ExecuteInsertAuditLog(operator, "ALTER_ACCESS_PERMISSIONS", details)
 	}
 	return err
+}
+
+// NEW FUNCTION: Resolves granular overrides for a specific user to determine functional authorization bounds
+func EvaluateUserPermission(username, role, ruleKey string, defaultFallback bool) bool {
+	if role == "admin" {
+		return true // Administrator overrides everything
+	}
+	if db == nil {
+		return defaultFallback
+	}
+
+	// 1. Check for specific per-user explicit override first
+	var userVal string
+	userKey := fmt.Sprintf("perm_%s_%s", username, ruleKey)
+	err := db.QueryRow("SELECT config_value FROM agartala.system_config WHERE config_key = $1;", userKey).Scan(&userVal)
+	if err == nil {
+		return userVal == "true"
+	}
+
+	// 2. Check for global group role default fallback configuration
+	var roleVal string
+	roleKeyName := fmt.Sprintf("perm_%s_%s", role, ruleKey)
+	err = db.QueryRow("SELECT config_value FROM agartala.system_config WHERE config_key = $1;", roleKeyName).Scan(&roleVal)
+	if err == nil {
+		return roleVal == "true"
+	}
+
+	return defaultFallback
 }
