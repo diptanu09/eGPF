@@ -26,7 +26,6 @@ const (
 
 var selectedRowIndex int = -1
 
-// FIXED: Lifted to package-level scope to cleanly resolve compiler visibility and use math/rand import safely
 func generateRandom4DigitPIN() string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return fmt.Sprintf("%04d", r.Intn(10000))
@@ -43,7 +42,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	}}
 	selectedRowIndex = -1
 
-	// DYNAMIC PER-USER & PER-ROLE PERMISSION EVALUATIONS
 	canWrite := db.EvaluateUserPermission(username, role, "can_write", role == "admin" || role == "operator")
 	canDelete := (role == "admin")
 	canManageUsers := (role == "admin")
@@ -120,7 +118,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	seriesOptions, seriesMap, err := db.FetchSeriesDropdownOptions()
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("Failed to populate system series definitions: %v", err), window)
-	} else {
+	} else if len(seriesOptions) > 0 {
 		sort.Slice(seriesOptions, func(i, j int) bool {
 			var id1, id2 int
 			fmt.Sscanf(seriesOptions[i], "%d", &id1)
@@ -431,7 +429,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	actionMenuButton.Selected = "[Choose Row Operation]"
 	actionMenuSizer := container.NewGridWrap(fyne.NewSize(240, 36), actionMenuButton)
 
-	systemToolsMenu := widget.NewSelect([]string{"[System Tools Portal Menu]", "DDO Master Directory Registry", "Add New Fund Series Category", "Manage Local User Profiles", "Feature Permissions Overrides", "App Distribution Version Setup"}, func(tool string) {
+	// UPDATED: Added "Pending Registration Requests" portal directly inside system menu items
+	systemToolsMenu := widget.NewSelect([]string{"[System Tools Portal Menu]", "DDO Master Directory Registry", "Add New Fund Series Category", "Manage Local User Profiles", "Pending Registration Requests", "Feature Permissions Overrides", "App Distribution Version Setup"}, func(tool string) {
 		resetInactivityTimer()
 		if role != "admin" && tool != "DDO Master Directory Registry" {
 			dialog.ShowError(fmt.Errorf("Security Constraint: Administrative levels required."), window)
@@ -615,6 +614,61 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			scrollPanel := container.NewScroll(userListContainer)
 			scrollPanel.SetMinSize(fyne.NewSize(780, 360))
 			d := dialog.NewCustom("System Operator Registry Directory", "Close Profile Portal", container.NewBorder(userSearchBox, nil, nil, nil, scrollPanel), window)
+			trackDialog(d)
+			d.Show()
+
+		case "Pending Registration Requests":
+			// NEW FACTION INCORPORATION: Interactive registration vetting portal window overlay
+			if !canManageUsers {
+				dialog.ShowError(fmt.Errorf("Administrative boundaries constraint exception."), window)
+				return
+			}
+			pendingContainer := container.NewVBox()
+
+			var refreshPendingQueue func()
+			refreshPendingQueue = func() {
+				pendingContainer.Objects = nil
+				totalPending := db.FetchPendingUserCount()
+				pendingContainer.Add(widget.NewLabelWithStyle(fmt.Sprintf("📋 Total Pending Registrations: %d", totalPending), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+				pendingContainer.Add(widget.NewSeparator())
+
+				list, err := db.FetchPendingUsers()
+				if err != nil || len(list) == 0 {
+					pendingContainer.Add(widget.NewLabel("No registration requests currently awaiting terminal verification."))
+					return
+				}
+
+				for _, targetAccount := range list {
+					targetAccountLocal := targetAccount
+					roleSelection := widget.NewSelect([]string{"user", "operator", "admin"}, nil)
+					roleSelection.SetSelected("user")
+
+					approveBtn := widget.NewButtonWithIcon("Approve Access", theme.ConfirmIcon(), func() {
+						if err := db.ExecuteProcessApproval(username, targetAccountLocal, roleSelection.Selected, true); err == nil {
+							refreshPendingQueue()
+						}
+					})
+					approveBtn.Importance = widget.HighImportance
+
+					rejectBtn := widget.NewButtonWithIcon("Reject/Purge", theme.CancelIcon(), func() {
+						if err := db.ExecuteProcessApproval(username, targetAccountLocal, "", false); err == nil {
+							refreshPendingQueue()
+						}
+					})
+
+					pendingContainer.Add(container.NewHBox(
+						container.NewGridWrap(fyne.NewSize(160, 36), widget.NewLabel(targetAccountLocal)),
+						widget.NewLabel("Assign Role:"),
+						container.NewGridWrap(fyne.NewSize(110, 36), roleSelection),
+						approveBtn,
+						rejectBtn,
+					))
+				}
+			}
+			refreshPendingQueue()
+			scroll := container.NewScroll(pendingContainer)
+			scroll.SetMinSize(fyne.NewSize(650, 360))
+			d := dialog.NewCustom("Pending Authorization Registration Queue", "Close Queue View", scroll, window)
 			trackDialog(d)
 			d.Show()
 
