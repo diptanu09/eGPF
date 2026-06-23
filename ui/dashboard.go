@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.2.0.2"
+	CurrentClientVersion   = "2.2.0.1"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
@@ -226,17 +226,27 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		clearButton,
 	)
 
-	resolveProfileAvatar := func(targetUser string, width, height float32) fyne.CanvasObject {
-		path := fmt.Sprintf("assets/profiles/%s.png", targetUser)
-		if _, err := os.Stat(path); err != nil {
-			icon := canvas.NewImageFromResource(theme.AccountIcon())
-			icon.SetMinSize(fyne.NewSize(width, height))
-			return icon
+	// FIXED & UPDATED: Added targetRole fallback checks for dynamic aesthetic updates
+	resolveProfileAvatar := func(targetUser string, targetRole string, width, height float32) fyne.CanvasObject {
+		userPath := fmt.Sprintf("assets/profiles/%s.png", targetUser)
+		if _, err := os.Stat(userPath); err == nil {
+			img := canvas.NewImageFromFile(userPath)
+			img.FillMode = canvas.ImageFillContain
+			img.SetMinSize(fyne.NewSize(width, height))
+			return img
 		}
-		img := canvas.NewImageFromFile(path)
-		img.FillMode = canvas.ImageFillContain
-		img.SetMinSize(fyne.NewSize(width, height))
-		return img
+
+		rolePath := fmt.Sprintf("assets/profiles/role_%s.png", targetRole)
+		if _, err := os.Stat(rolePath); err == nil {
+			img := canvas.NewImageFromFile(rolePath)
+			img.FillMode = canvas.ImageFillContain
+			img.SetMinSize(fyne.NewSize(width, height))
+			return img
+		}
+
+		icon := canvas.NewImageFromResource(theme.AccountIcon())
+		icon.SetMinSize(fyne.NewSize(width, height))
+		return icon
 	}
 
 	executeViewDdo := func() {
@@ -429,7 +439,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	actionMenuButton.Selected = "[Choose Row Operation]"
 	actionMenuSizer := container.NewGridWrap(fyne.NewSize(240, 36), actionMenuButton)
 
-	// UPDATED: Added "Pending Registration Requests" portal directly inside system menu items
 	systemToolsMenu := widget.NewSelect([]string{"[System Tools Portal Menu]", "DDO Master Directory Registry", "Add New Fund Series Category", "Manage Local User Profiles", "Pending Registration Requests", "Feature Permissions Overrides", "App Distribution Version Setup"}, func(tool string) {
 		resetInactivityTimer()
 		if role != "admin" && tool != "DDO Master Directory Registry" {
@@ -438,19 +447,18 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		}
 		switch tool {
 		case "DDO Master Directory Registry":
+			// FIXED: Entire section completely converted into an expanded, non-overlapping Table-driven matrix
 			if !canViewDdoData {
 				dialog.ShowError(fmt.Errorf("Access Denied"), window)
 				return
 			}
 
-			// Local memory scope matrix variables
 			var ddoGridData [][]string
 			var selectedDdoRowIndex int = -1
 
 			ddoSearchBox := widget.NewEntry()
 			ddoSearchBox.SetPlaceHolder("Type DDO Code to filter directory matrix on-the-fly...")
 
-			// Define the tabular structure grid matrix
 			ddoTable := widget.NewTable(
 				func() (int, int) { return len(ddoGridData), 5 },
 				func() fyne.CanvasObject {
@@ -471,14 +479,12 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				},
 			)
 
-			// Assign proper baseline widths to prevent overlapping text cells
-			ddoTable.SetColumnWidth(0, 100) // DDO Code
-			ddoTable.SetColumnWidth(1, 250) // Designation
-			ddoTable.SetColumnWidth(2, 130) // Phone No
-			ddoTable.SetColumnWidth(3, 240) // Email Address
-			ddoTable.SetColumnWidth(4, 100) // Gate PIN
+			ddoTable.SetColumnWidth(0, 100)
+			ddoTable.SetColumnWidth(1, 250)
+			ddoTable.SetColumnWidth(2, 130)
+			ddoTable.SetColumnWidth(3, 240)
+			ddoTable.SetColumnWidth(4, 100)
 
-			// Fetch database entries and construct matrix payload
 			syncDdoGrid := func(filter string) {
 				profiles, _ := db.FetchAllDDOMasterProfiles(filter)
 				matrix := [][]string{{
@@ -487,7 +493,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				for _, p := range profiles {
 					pinText := p[6]
 					if role != "admin" {
-						pinText = "****" // Obfuscate PIN from standard operators
+						pinText = "****"
 					}
 					matrix = append(matrix, []string{p[0], p[1], p[2], p[3], pinText})
 				}
@@ -508,7 +514,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 			ddoSearchBox.OnChanged = syncDdoGrid
 
-			// ADMINISTRATIVE UTILITY ACTION: Manage and Modify full DDO Master Directory profiles
+			// FIXED & ADDED: Administrative form enabling full parameter overrides on Designation, Phone, Email, and PIN fields
 			managePinBtn := widget.NewButtonWithIcon("Update DDO Profile Details", theme.DocumentCreateIcon(), func() {
 				resetInactivityTimer()
 				if selectedDdoRowIndex == -1 {
@@ -520,7 +526,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					return
 				}
 
-				// Extract existing snapshot records from selected table matrix location
 				targetDdoCode := ddoGridData[selectedDdoRowIndex][0]
 				currentDesg := ddoGridData[selectedDdoRowIndex][1]
 				currentPhone := ddoGridData[selectedDdoRowIndex][2]
@@ -530,7 +535,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					currentPin = ""
 				}
 
-				// Turn informational fields into interactive editable components
 				desgInputField := widget.NewEntry()
 				desgInputField.SetText(currentDesg)
 				phoneInputField := widget.NewEntry()
@@ -545,7 +549,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					pinInputField.SetText(generateRandom4DigitPIN())
 				})
 
-				// Map editable fields into standard entry form items
 				formItems := []*widget.FormItem{
 					widget.NewFormItem("Target DDO Code", widget.NewLabelWithStyle(targetDdoCode, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 					widget.NewFormItem("Official Designation", desgInputField),
@@ -557,18 +560,10 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 				d := dialog.NewForm("Modify DDO System Master Profile Records", "Save Changes", "Cancel", formItems, func(confirmed bool) {
 					if confirmed {
-						// Pass all modified field parameters into the atomic transactional routine
-						err := db.ExecuteUpdateDDOProfile(
-							username,
-							targetDdoCode,
-							desgInputField.Text,
-							phoneInputField.Text,
-							emailInputField.Text,
-							pinInputField.Text,
-						)
+						err := db.ExecuteUpdateDDOProfile(username, targetDdoCode, desgInputField.Text, phoneInputField.Text, emailInputField.Text, pinInputField.Text)
 						if err == nil {
 							dialog.ShowInformation("Profile Synced", "DDO master data fields and security bounds saved successfully.", window)
-							syncDdoGrid(ddoSearchBox.Text) // Refresh the background grid layer view
+							syncDdoGrid(ddoSearchBox.Text)
 						} else {
 							dialog.ShowError(err, window)
 						}
@@ -578,19 +573,29 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				d.Show()
 			})
 
-			// Initialize default baseline view data contents
 			syncDdoGrid("")
 
-			// Pack the controls into a robust border panel layout matrix
 			topPanel := container.NewVBox(ddoSearchBox)
 			bottomPanel := container.NewHBox(managePinBtn)
-
 			tableSizer := container.NewPadded(ddoTable)
 			mainBorderLayout := container.NewBorder(topPanel, bottomPanel, nil, nil, tableSizer)
 
-			// Draw modal container display view sizing box
 			d := dialog.NewCustom("DDO Master Directory Registry Console", "Close Matrix Portal", mainBorderLayout, window)
 			d.Resize(fyne.NewSize(880, 500))
+			trackDialog(d)
+			d.Show()
+
+		case "Add New Fund Series Category":
+			idEnt := widget.NewEntry()
+			idEnt.SetPlaceHolder("ID")
+			nmEnt := widget.NewEntry()
+			nmEnt.SetPlaceHolder("Name")
+			items := []*widget.FormItem{widget.NewFormItem("Series ID", idEnt), widget.NewFormItem("Series Name", nmEnt)}
+			d := dialog.NewForm("Configure Series", "Save", "Cancel", items, func(confirmed bool) {
+				if confirmed && idEnt.Text != "" && nmEnt.Text != "" {
+					_ = db.ExecuteInsertSeries(idEnt.Text, nmEnt.Text)
+				}
+			}, window)
 			trackDialog(d)
 			d.Show()
 
@@ -687,7 +692,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 						})
 
 						modalLayout := container.NewVBox(
-							container.NewHBox(resolveProfileAvatar(uNameLocal, 48, 48), widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
+							// FIXED: Added role alignment mapping bounds to list profile avatar checks
+							container.NewHBox(resolveProfileAvatar(uNameLocal, currentRoleLocal, 48, 48), widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 							widget.NewSeparator(),
 							widget.NewLabel("Modify Security Authorization Level:"),
 							container.NewHBox(roleDropdown, saveRoleBtn),
@@ -707,7 +713,8 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					})
 
 					userListContainer.Add(container.NewHBox(
-						resolveProfileAvatar(uNameLocal, 32, 32),
+						// FIXED: Swapped out static image check parameters to include the local user role context
+						resolveProfileAvatar(uNameLocal, currentRoleLocal, 32, 32),
 						container.NewGridWrap(fyne.NewSize(140, 36), widget.NewLabel(uNameLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentRoleLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentStatusLocal)),
@@ -725,7 +732,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			d.Show()
 
 		case "Pending Registration Requests":
-			// NEW FACTION INCORPORATION: Interactive registration vetting portal window overlay
 			if !canManageUsers {
 				dialog.ShowError(fmt.Errorf("Administrative boundaries constraint exception."), window)
 				return
@@ -903,8 +909,9 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 	profileText := fmt.Sprintf("Operator ID: %s\nClearance: Secure %s\nSession Start: %s", username, role, lastLogin)
 
+	// FIXED: Updated parameter checklist mapping to feed full session role details
 	profileHeaderLayout := container.NewHBox(
-		resolveProfileAvatar(username, 52, 52),
+		resolveProfileAvatar(username, role, 52, 52),
 		widget.NewLabel(profileText),
 	)
 	profileCard := widget.NewCard("eGPF Operational Core Enterprise Dashboard", "Secure Profile Scope", profileHeaderLayout)

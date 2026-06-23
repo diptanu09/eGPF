@@ -282,7 +282,6 @@ func ExecuteCreateNewSubscriber(operator, seriesID, accountNo, initialPIN string
 	return err
 }
 
-// UPDATED FUNCTION: Resolves explicit per-user and per-role permissions dynamically
 func FetchApplicationPermissions() (map[string]bool, error) {
 	perms := map[string]bool{
 		"operator_can_write":      true,
@@ -309,13 +308,11 @@ func FetchApplicationPermissions() (map[string]bool, error) {
 	return perms, nil
 }
 
-// UPDATED FUNCTION: Persists dynamic permissions target mappings, accepting standard rule spaces or per-user configurations
 func ExecuteSavePermissionToggle(operator, targetScope, ruleKey string, allowed bool) error {
 	if db == nil {
 		return fmt.Errorf("database handle uninitialized")
 	}
 
-	// targetScope can be "role" or a specific username (e.g., "diptanu")
 	dbKey := fmt.Sprintf("perm_%s_%s", targetScope, ruleKey)
 	if targetScope == "role" {
 		dbKey = "perm_" + ruleKey
@@ -343,7 +340,6 @@ func ExecuteSavePermissionToggle(operator, targetScope, ruleKey string, allowed 
 	return err
 }
 
-// NEW FUNCTION: Resolves granular overrides for a specific user to determine functional authorization bounds
 func EvaluateUserPermission(username, role, ruleKey string, defaultFallback bool) bool {
 	if role == "admin" {
 		return true // Administrator overrides everything
@@ -352,7 +348,6 @@ func EvaluateUserPermission(username, role, ruleKey string, defaultFallback bool
 		return defaultFallback
 	}
 
-	// 1. Check for specific per-user explicit override first
 	var userVal string
 	userKey := fmt.Sprintf("perm_%s_%s", username, ruleKey)
 	err := db.QueryRow("SELECT config_value FROM agartala.system_config WHERE config_key = $1;", userKey).Scan(&userVal)
@@ -360,7 +355,6 @@ func EvaluateUserPermission(username, role, ruleKey string, defaultFallback bool
 		return userVal == "true"
 	}
 
-	// 2. Check for global group role default fallback configuration
 	var roleVal string
 	roleKeyName := fmt.Sprintf("perm_%s_%s", role, ruleKey)
 	err = db.QueryRow("SELECT config_value FROM agartala.system_config WHERE config_key = $1;", roleKeyName).Scan(&roleVal)
@@ -371,7 +365,7 @@ func EvaluateUserPermission(username, role, ruleKey string, defaultFallback bool
 	return defaultFallback
 }
 
-// ExecuteUpdateDDOProfile commits updates to master description records and PIN settings atomically
+// FIXED & ADDED: Atomically update master designation, phone, email, and gate PIN context
 func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin string) error {
 	if db == nil {
 		return fmt.Errorf("database handle uninitialized")
@@ -383,7 +377,7 @@ func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin s
 	}
 	defer tx.Rollback()
 
-	// 1. Synchronize data records back into the central DDO master configuration table
+	// 1. Synchronize details back into central master configuration table
 	_, err = tx.Exec(`
 		UPDATE agartala.mm_ddo 
 		SET ddo_desg = $1, ddo_phone = $2, ddo_email = $3 
@@ -394,7 +388,7 @@ func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin s
 		return fmt.Errorf("master configuration profile layer update failure: %w", err)
 	}
 
-	// 2. Evaluate and manage the gate security system login mapping entries
+	// 2. Evaluate and manage security system login map settings
 	var exists bool
 	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.ddo_login WHERE ddo_code = $1);", ddoCode).Scan(&exists)
 	if err != nil {
@@ -412,7 +406,7 @@ func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin s
 		}
 	}
 
-	// 3. Append track log trails for security operations audit reports
+	// 3. Append track log trails
 	details := fmt.Sprintf("Updated DDO profile records for %s: Desg=[%s], Phone=[%s], Email=[%s], PIN Context Updated", ddoCode, designation, phone, email)
 	if auditErr := ExecuteInsertAuditLog(operator, "UPDATE_DDO_PROFILE_DATA", details); auditErr != nil {
 		return fmt.Errorf("audit logging session failure: %w", auditErr)
