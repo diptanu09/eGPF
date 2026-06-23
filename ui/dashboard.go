@@ -442,48 +442,155 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				dialog.ShowError(fmt.Errorf("Access Denied"), window)
 				return
 			}
-			ddoListContainer := container.NewVBox()
+
+			// Local memory scope matrix variables
+			var ddoGridData [][]string
+			var selectedDdoRowIndex int = -1
+
 			ddoSearchBox := widget.NewEntry()
-			ddoSearchBox.SetPlaceHolder("Filter DDO Master...")
-			createCell := func(text string, bold bool, w float32) fyne.CanvasObject {
-				lbl := widget.NewLabel(text)
-				lbl.Wrapping = fyne.TextWrapWord
-				if bold {
-					lbl.TextStyle = fyne.TextStyle{Bold: true}
-				}
-				return container.NewGridWrap(fyne.NewSize(w, 42), lbl)
-			}
-			renderDdoRows := func(filter string) {
-				ddoListContainer.Objects = nil
+			ddoSearchBox.SetPlaceHolder("Type DDO Code to filter directory matrix on-the-fly...")
+
+			// Define the tabular structure grid matrix
+			ddoTable := widget.NewTable(
+				func() (int, int) { return len(ddoGridData), 5 },
+				func() fyne.CanvasObject {
+					lbl := widget.NewLabel("")
+					lbl.Wrapping = fyne.TextTruncate
+					return lbl
+				},
+				func(id widget.TableCellID, cell fyne.CanvasObject) {
+					if id.Row < len(ddoGridData) && id.Col < 5 {
+						label := cell.(*widget.Label)
+						label.SetText(ddoGridData[id.Row][id.Col])
+						if id.Row == 0 {
+							label.TextStyle = fyne.TextStyle{Bold: true}
+						} else {
+							label.TextStyle = fyne.TextStyle{}
+						}
+					}
+				},
+			)
+
+			// Assign proper baseline widths to prevent overlapping text cells
+			ddoTable.SetColumnWidth(0, 100) // DDO Code
+			ddoTable.SetColumnWidth(1, 250) // Designation
+			ddoTable.SetColumnWidth(2, 130) // Phone No
+			ddoTable.SetColumnWidth(3, 240) // Email Address
+			ddoTable.SetColumnWidth(4, 100) // Gate PIN
+
+			// Fetch database entries and construct matrix payload
+			syncDdoGrid := func(filter string) {
 				profiles, _ := db.FetchAllDDOMasterProfiles(filter)
-				ddoListContainer.Add(container.NewHBox(createCell("DDO Code", true, 90), createCell("Designation", true, 220), createCell("Phone", true, 120), createCell("Email", true, 220), createCell("Gate PIN", true, 90)))
+				matrix := [][]string{{
+					"DDO Code", "Official Designation", "Phone No", "Email Address", "Gate Access PIN",
+				}}
 				for _, p := range profiles {
 					pinText := p[6]
 					if role != "admin" {
-						pinText = "****"
+						pinText = "****" // Obfuscate PIN from standard operators
 					}
-					ddoListContainer.Add(container.NewHBox(createCell(p[0], false, 90), createCell(p[1], false, 220), createCell(p[2], false, 120), createCell(p[3], false, 220), createCell(pinText, false, 90)))
+					matrix = append(matrix, []string{p[0], p[1], p[2], p[3], pinText})
 				}
+				ddoGridData = matrix
+				selectedDdoRowIndex = -1
+				ddoTable.UnselectAll()
+				ddoTable.Refresh()
 			}
-			ddoSearchBox.OnChanged = renderDdoRows
-			renderDdoRows("")
-			scroll := container.NewScroll(ddoListContainer)
-			scroll.SetMinSize(fyne.NewSize(800, 400))
-			d := dialog.NewCustom("DDO Master Registry", "Close", container.NewBorder(ddoSearchBox, nil, nil, nil, scroll), window)
-			trackDialog(d)
-			d.Show()
 
-		case "Add New Fund Series Category":
-			idEnt := widget.NewEntry()
-			idEnt.SetPlaceHolder("ID")
-			nmEnt := widget.NewEntry()
-			nmEnt.SetPlaceHolder("Name")
-			items := []*widget.FormItem{widget.NewFormItem("Series ID", idEnt), widget.NewFormItem("Series Name", nmEnt)}
-			d := dialog.NewForm("Configure Series", "Save", "Cancel", items, func(confirmed bool) {
-				if confirmed && idEnt.Text != "" && nmEnt.Text != "" {
-					_ = db.ExecuteInsertSeries(idEnt.Text, nmEnt.Text)
+			ddoTable.OnSelected = func(id widget.TableCellID) {
+				resetInactivityTimer()
+				if id.Row == 0 {
+					ddoTable.Unselect(id)
+					return
 				}
-			}, window)
+				selectedDdoRowIndex = id.Row
+			}
+
+			ddoSearchBox.OnChanged = syncDdoGrid
+
+			// ADMINISTRATIVE UTILITY ACTION: Manage and Modify full DDO Master Directory profiles
+			managePinBtn := widget.NewButtonWithIcon("Update DDO Profile Details", theme.DocumentCreateIcon(), func() {
+				resetInactivityTimer()
+				if selectedDdoRowIndex == -1 {
+					dialog.ShowInformation("Selection Required", "Please click on a row within the DDO matrix table grid first.", window)
+					return
+				}
+				if role != "admin" {
+					dialog.ShowError(fmt.Errorf("Security Constraint: Administrative authorization limits required."), window)
+					return
+				}
+
+				// Extract existing snapshot records from selected table matrix location
+				targetDdoCode := ddoGridData[selectedDdoRowIndex][0]
+				currentDesg := ddoGridData[selectedDdoRowIndex][1]
+				currentPhone := ddoGridData[selectedDdoRowIndex][2]
+				currentEmail := ddoGridData[selectedDdoRowIndex][3]
+				currentPin := ddoGridData[selectedDdoRowIndex][4]
+				if currentPin == "****" {
+					currentPin = ""
+				}
+
+				// Turn informational fields into interactive editable components
+				desgInputField := widget.NewEntry()
+				desgInputField.SetText(currentDesg)
+				phoneInputField := widget.NewEntry()
+				phoneInputField.SetText(currentPhone)
+				emailInputField := widget.NewEntry()
+				emailInputField.SetText(currentEmail)
+				pinInputField := widget.NewEntry()
+				pinInputField.SetText(currentPin)
+				pinInputField.SetPlaceHolder("Enter or generate 4-digit PIN")
+
+				autoGenerateBtn := widget.NewButtonWithIcon("Auto-Generate", theme.ViewRefreshIcon(), func() {
+					pinInputField.SetText(generateRandom4DigitPIN())
+				})
+
+				// Map editable fields into standard entry form items
+				formItems := []*widget.FormItem{
+					widget.NewFormItem("Target DDO Code", widget.NewLabelWithStyle(targetDdoCode, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
+					widget.NewFormItem("Official Designation", desgInputField),
+					widget.NewFormItem("Phone Number", phoneInputField),
+					widget.NewFormItem("Email Address", emailInputField),
+					widget.NewFormItem("Security Access PIN", pinInputField),
+					widget.NewFormItem("Action Control", autoGenerateBtn),
+				}
+
+				d := dialog.NewForm("Modify DDO System Master Profile Records", "Save Changes", "Cancel", formItems, func(confirmed bool) {
+					if confirmed {
+						// Pass all modified field parameters into the atomic transactional routine
+						err := db.ExecuteUpdateDDOProfile(
+							username,
+							targetDdoCode,
+							desgInputField.Text,
+							phoneInputField.Text,
+							emailInputField.Text,
+							pinInputField.Text,
+						)
+						if err == nil {
+							dialog.ShowInformation("Profile Synced", "DDO master data fields and security bounds saved successfully.", window)
+							syncDdoGrid(ddoSearchBox.Text) // Refresh the background grid layer view
+						} else {
+							dialog.ShowError(err, window)
+						}
+					}
+				}, window)
+				trackDialog(d)
+				d.Show()
+			})
+
+			// Initialize default baseline view data contents
+			syncDdoGrid("")
+
+			// Pack the controls into a robust border panel layout matrix
+			topPanel := container.NewVBox(ddoSearchBox)
+			bottomPanel := container.NewHBox(managePinBtn)
+
+			tableSizer := container.NewPadded(ddoTable)
+			mainBorderLayout := container.NewBorder(topPanel, bottomPanel, nil, nil, tableSizer)
+
+			// Draw modal container display view sizing box
+			d := dialog.NewCustom("DDO Master Directory Registry Console", "Close Matrix Portal", mainBorderLayout, window)
+			d.Resize(fyne.NewSize(880, 500))
 			trackDialog(d)
 			d.Show()
 

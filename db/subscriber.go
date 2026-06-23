@@ -370,3 +370,53 @@ func EvaluateUserPermission(username, role, ruleKey string, defaultFallback bool
 
 	return defaultFallback
 }
+
+// ExecuteUpdateDDOProfile commits updates to master description records and PIN settings atomically
+func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin string) error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Synchronize data records back into the central DDO master configuration table
+	_, err = tx.Exec(`
+		UPDATE agartala.mm_ddo 
+		SET ddo_desg = $1, ddo_phone = $2, ddo_email = $3 
+		WHERE ddo_code = $4;`,
+		designation, phone, email, ddoCode,
+	)
+	if err != nil {
+		return fmt.Errorf("master configuration profile layer update failure: %w", err)
+	}
+
+	// 2. Evaluate and manage the gate security system login mapping entries
+	var exists bool
+	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.ddo_login WHERE ddo_code = $1);", ddoCode).Scan(&exists)
+	if err != nil {
+		return err
+	}
+
+	if pin != "" {
+		if exists {
+			_, err = tx.Exec("UPDATE agartala.ddo_login SET pin = $1 WHERE ddo_code = $2;", pin, ddoCode)
+		} else {
+			_, err = tx.Exec("INSERT INTO agartala.ddo_login (pin, ddo_code) VALUES ($1, $2);", pin, ddoCode)
+		}
+		if err != nil {
+			return fmt.Errorf("gate access PIN persistence framework deployment breakdown: %w", err)
+		}
+	}
+
+	// 3. Append track log trails for security operations audit reports
+	details := fmt.Sprintf("Updated DDO profile records for %s: Desg=[%s], Phone=[%s], Email=[%s], PIN Context Updated", ddoCode, designation, phone, email)
+	if auditErr := ExecuteInsertAuditLog(operator, "UPDATE_DDO_PROFILE_DATA", details); auditErr != nil {
+		return fmt.Errorf("audit logging session failure: %w", auditErr)
+	}
+
+	return tx.Commit()
+}
