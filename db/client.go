@@ -23,11 +23,11 @@ func FetchLatestAppVersion() (string, string, error) {
 	var latestVersion, downloadPath string
 	err := db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'latest_version';").Scan(&latestVersion)
 	if err != nil {
-		return "2.2.0.2", "", nil
+		return "2.3.1", "", nil
 	}
 	err = db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'download_path';").Scan(&downloadPath)
 	if err != nil {
-		return "2.2.0.2", "", nil
+		return "2.3.1", "", nil
 	}
 	return latestVersion, downloadPath, nil
 }

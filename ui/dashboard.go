@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.2.0.1"
+	CurrentClientVersion   = "2.3.1"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
@@ -226,27 +225,28 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		clearButton,
 	)
 
-	// FIXED & UPDATED: Added targetRole fallback checks for dynamic aesthetic updates
-	resolveProfileAvatar := func(targetUser string, targetRole string, width, height float32) fyne.CanvasObject {
-		userPath := fmt.Sprintf("assets/profiles/%s.png", targetUser)
-		if _, err := os.Stat(userPath); err == nil {
-			img := canvas.NewImageFromFile(userPath)
-			img.FillMode = canvas.ImageFillContain
-			img.SetMinSize(fyne.NewSize(width, height))
-			return img
+	resolveProfileAvatar := func(_ string, targetRole string, width, height float32) fyne.CanvasObject {
+		var avatarRes fyne.Resource
+
+		switch targetRole {
+		case "admin":
+			if ResourceRoleAdminPng != nil {
+				avatarRes = ResourceRoleAdminPng
+			}
+		case "operator":
+			if ResourceRoleOperatorPng != nil {
+				avatarRes = ResourceRoleOperatorPng
+			}
 		}
 
-		rolePath := fmt.Sprintf("assets/profiles/role_%s.png", targetRole)
-		if _, err := os.Stat(rolePath); err == nil {
-			img := canvas.NewImageFromFile(rolePath)
-			img.FillMode = canvas.ImageFillContain
-			img.SetMinSize(fyne.NewSize(width, height))
-			return img
+		if avatarRes == nil {
+			avatarRes = theme.AccountIcon()
 		}
 
-		icon := canvas.NewImageFromResource(theme.AccountIcon())
-		icon.SetMinSize(fyne.NewSize(width, height))
-		return icon
+		img := canvas.NewImageFromResource(avatarRes)
+		img.FillMode = canvas.ImageFillContain
+		img.SetMinSize(fyne.NewSize(width, height))
+		return img
 	}
 
 	executeViewDdo := func() {
@@ -447,7 +447,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		}
 		switch tool {
 		case "DDO Master Directory Registry":
-			// FIXED: Entire section completely converted into an expanded, non-overlapping Table-driven matrix
 			if !canViewDdoData {
 				dialog.ShowError(fmt.Errorf("Access Denied"), window)
 				return
@@ -514,7 +513,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 			ddoSearchBox.OnChanged = syncDdoGrid
 
-			// FIXED & ADDED: Administrative form enabling full parameter overrides on Designation, Phone, Email, and PIN fields
 			managePinBtn := widget.NewButtonWithIcon("Update DDO Profile Details", theme.DocumentCreateIcon(), func() {
 				resetInactivityTimer()
 				if selectedDdoRowIndex == -1 {
@@ -692,7 +690,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 						})
 
 						modalLayout := container.NewVBox(
-							// FIXED: Added role alignment mapping bounds to list profile avatar checks
 							container.NewHBox(resolveProfileAvatar(uNameLocal, currentRoleLocal, 48, 48), widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
 							widget.NewSeparator(),
 							widget.NewLabel("Modify Security Authorization Level:"),
@@ -713,7 +710,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					})
 
 					userListContainer.Add(container.NewHBox(
-						// FIXED: Swapped out static image check parameters to include the local user role context
 						resolveProfileAvatar(uNameLocal, currentRoleLocal, 32, 32),
 						container.NewGridWrap(fyne.NewSize(140, 36), widget.NewLabel(uNameLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentRoleLocal)),
@@ -909,7 +905,6 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 	profileText := fmt.Sprintf("Operator ID: %s\nClearance: Secure %s\nSession Start: %s", username, role, lastLogin)
 
-	// FIXED: Updated parameter checklist mapping to feed full session role details
 	profileHeaderLayout := container.NewHBox(
 		resolveProfileAvatar(username, role, 52, 52),
 		widget.NewLabel(profileText),
