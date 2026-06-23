@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.2.0.1"
+	CurrentClientVersion   = "2.2.0.2"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
