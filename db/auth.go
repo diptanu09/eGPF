@@ -155,8 +155,9 @@ func ExecuteProcessApproval(operator, targetUser, assignedRole string, approve b
 func FetchSystemUsers(searchFilter string) ([][]string, error) {
 	directoryData := [][]string{}
 
+	// Added COALESCE to capture avatar strings
 	baseQuery := `
-        SELECT username, role, COALESCE(last_login::text, 'Never Logged In'), status, COALESCE(system_id, 'UNLOCKED') 
+        SELECT username, role, COALESCE(last_login::text, 'Never Logged In'), status, COALESCE(system_id, 'UNLOCKED'), COALESCE(avatar_selection, 'default') 
         FROM users`
 
 	var rows *sql.Rows
@@ -176,9 +177,9 @@ func FetchSystemUsers(searchFilter string) ([][]string, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var uName, uRole, lastLog, uStatus, sysID string
-		if err := rows.Scan(&uName, &uRole, &lastLog, &uStatus, &sysID); err == nil {
-			directoryData = append(directoryData, []string{uName, uRole, lastLog, uStatus, sysID})
+		var uName, uRole, lastLog, uStatus, sysID, avatar string
+		if err := rows.Scan(&uName, &uRole, &lastLog, &uStatus, &sysID, &avatar); err == nil {
+			directoryData = append(directoryData, []string{uName, uRole, lastLog, uStatus, sysID, avatar})
 		}
 	}
 	return directoryData, nil
@@ -242,6 +243,19 @@ func ExecuteTerminateUserSession(operator, username string) error {
 	if err == nil {
 		details := fmt.Sprintf("Forced live session token teardown and dropped system biometric fingerprints for operator user profile: %s", username)
 		_ = ExecuteInsertAuditLog(operator, "TERMINATE_USER_SESSION", details)
+	}
+	return err
+}
+
+// ExecuteUpdateUserAvatar overwrites the static layout badge tracker assignment for a profile
+func ExecuteUpdateUserAvatar(operator, username, chosenAvatar string) error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+	_, err := db.Exec("UPDATE users SET avatar_selection = $1 WHERE username = $2;", chosenAvatar, username)
+	if err == nil {
+		details := fmt.Sprintf("Admin altered user graphic context: user %s set to [%s]", username, chosenAvatar)
+		_ = ExecuteInsertAuditLog(operator, "UPDATE_USER_AVATAR", details)
 	}
 	return err
 }

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.3.1"
+	CurrentClientVersion   = "2.3.2"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
@@ -225,17 +225,31 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		clearButton,
 	)
 
-	resolveProfileAvatar := func(_ string, targetRole string, width, height float32) fyne.CanvasObject {
+	// UPDATED: Dynamic Avatar lookup evaluation supporting static assignments
+	resolveProfileAvatar := func(avatarSelection string, targetRole string, width, height float32) fyne.CanvasObject {
 		var avatarRes fyne.Resource
 
-		switch targetRole {
-		case "admin":
-			if ResourceRoleAdminPng != nil {
-				avatarRes = ResourceRoleAdminPng
-			}
-		case "operator":
-			if ResourceRoleOperatorPng != nil {
-				avatarRes = ResourceRoleOperatorPng
+		switch avatarSelection {
+		case "avatar_1":
+			avatarRes = ResourceAvatar1Png
+		case "avatar_2":
+			avatarRes = ResourceAvatar2Png
+		case "avatar_3":
+			avatarRes = ResourceAvatar3Png
+		case "avatar_4":
+			avatarRes = ResourceAvatar4Png
+		default:
+			switch targetRole {
+			case "admin":
+				// FIXED: Match lowercase if generated that way by the bundler tool
+				if ResourceRoleAdminPng != nil {
+					avatarRes = ResourceRoleAdminPng
+				}
+			case "operator":
+				// FIXED: Match lowercase if generated that way by the bundler tool
+				if ResourceRoleOperatorPng != nil {
+					avatarRes = ResourceRoleOperatorPng
+				}
 			}
 		}
 
@@ -630,6 +644,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					currentRoleLocal := uData[1]
 					lastLoginTextLocal := uData[2]
 					currentStatusLocal := uData[3]
+					currentAvatarLocal := uData[5]
 
 					manageAccountBtn := widget.NewButtonWithIcon("Manage Account", theme.SettingsIcon(), func() {
 						resetInactivityTimer()
@@ -638,12 +653,40 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 						roleDropdown := widget.NewSelect([]string{"user", "operator", "admin"}, nil)
 						roleDropdown.SetSelected(currentRoleLocal)
 
-						saveRoleBtn := widget.NewButtonWithIcon("Save Role Changes", theme.DocumentSaveIcon(), func() {
-							if uNameLocal == username {
-								dialog.ShowError(fmt.Errorf("You cannot alter your own role clearance level"), window)
+						// 1. Initialize a dynamic image holder canvas component for preview rendering
+						previewAvatarObject := resolveProfileAvatar(currentAvatarLocal, currentRoleLocal, 64, 64)
+						previewWrapper := container.NewCenter(previewAvatarObject)
+
+						avatarDropdown := widget.NewSelect([]string{"default", "avatar_1", "avatar_2", "avatar_3", "avatar_4"}, nil)
+						avatarDropdown.SetSelected(currentAvatarLocal)
+
+						// 2. Real-time update tracker callback hook for interactive preview transformations
+						avatarDropdown.OnChanged = func(newSelection string) {
+							// Generate new asset canvas layout and swap current graphic constraints dynamically
+							updatedAvatarImage := resolveProfileAvatar(newSelection, roleDropdown.Selected, 64, 64)
+							previewWrapper.Objects = []fyne.CanvasObject{updatedAvatarImage}
+							previewWrapper.Refresh()
+						}
+
+						// Sync avatar choices if role changes while selection remains set to "default"
+						roleDropdown.OnChanged = func(newRole string) {
+							if avatarDropdown.Selected == "default" {
+								updatedAvatarImage := resolveProfileAvatar("default", newRole, 64, 64)
+								previewWrapper.Objects = []fyne.CanvasObject{updatedAvatarImage}
+								previewWrapper.Refresh()
+							}
+						}
+
+						saveRoleBtn := widget.NewButtonWithIcon("Save Profile Configuration", theme.DocumentSaveIcon(), func() {
+							if uNameLocal == username && roleDropdown.Selected != "admin" {
+								dialog.ShowError(fmt.Errorf("You cannot alter your own admin role clearance level"), window)
 								return
 							}
-							if err := db.ExecuteUpdateUserRole(username, uNameLocal, roleDropdown.Selected); err == nil {
+
+							err1 := db.ExecuteUpdateUserRole(username, uNameLocal, roleDropdown.Selected)
+							err2 := db.ExecuteUpdateUserAvatar(username, uNameLocal, avatarDropdown.Selected)
+
+							if err1 == nil && err2 == nil {
 								if subConsoleModal != nil {
 									subConsoleModal.Hide()
 								}
@@ -690,10 +733,16 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 						})
 
 						modalLayout := container.NewVBox(
-							container.NewHBox(resolveProfileAvatar(uNameLocal, currentRoleLocal, 48, 48), widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
+							container.NewHBox(
+								previewWrapper, // Live interactive picture slot
+								widget.NewLabelWithStyle(fmt.Sprintf("Target User Account: %s", uNameLocal), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+							),
 							widget.NewSeparator(),
 							widget.NewLabel("Modify Security Authorization Level:"),
-							container.NewHBox(roleDropdown, saveRoleBtn),
+							roleDropdown,
+							widget.NewLabel("Assign Profile Avatar Concept:"),
+							avatarDropdown,
+							saveRoleBtn,
 							widget.NewSeparator(),
 							widget.NewLabel("Account Access State Administration:"),
 							toggleSuspendBtn,
@@ -705,12 +754,12 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 							terminateSessionBtn,
 						)
 						subConsoleModal = dialog.NewCustom("Operator Context Panel", "Close", modalLayout, window)
-						subConsoleModal.Resize(fyne.NewSize(520, 480))
+						subConsoleModal.Resize(fyne.NewSize(520, 560))
 						subConsoleModal.Show()
 					})
 
 					userListContainer.Add(container.NewHBox(
-						resolveProfileAvatar(uNameLocal, currentRoleLocal, 32, 32),
+						resolveProfileAvatar(currentAvatarLocal, currentRoleLocal, 32, 32),
 						container.NewGridWrap(fyne.NewSize(140, 36), widget.NewLabel(uNameLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentRoleLocal)),
 						container.NewGridWrap(fyne.NewSize(110, 36), widget.NewLabel(currentStatusLocal)),
@@ -903,10 +952,16 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	dashLogo.FillMode = canvas.ImageFillContain
 	dashLogo.SetMinSize(fyne.NewSize(75, 75))
 
+	// Fetch current user's profile avatar selection to render the correct header card item
+	myAvatarSelection := "default"
+	if operators, err := db.FetchSystemUsers(username); err == nil && len(operators) > 0 {
+		myAvatarSelection = operators[0][5]
+	}
+
 	profileText := fmt.Sprintf("Operator ID: %s\nClearance: Secure %s\nSession Start: %s", username, role, lastLogin)
 
 	profileHeaderLayout := container.NewHBox(
-		resolveProfileAvatar(username, role, 52, 52),
+		resolveProfileAvatar(myAvatarSelection, role, 52, 52),
 		widget.NewLabel(profileText),
 	)
 	profileCard := widget.NewCard("eGPF Operational Core Enterprise Dashboard", "Secure Profile Scope", profileHeaderLayout)

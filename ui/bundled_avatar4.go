@@ -10,8 +10,8 @@ import (
 )
 
 //go:embed assets/profiles/avatar_6.png
-var ResourceRoleOperatorPngData []byte
-var ResourceRoleOperatorPng = &fyne.StaticResource{
+var ResourceAvatar4PngData []byte
+var ResourceAvatar4Png = &fyne.StaticResource{
 	StaticName:    "assets/profiles/avatar_6.png",
-	StaticContent: ResourceRoleOperatorPngData,
+	StaticContent: ResourceAvatar4PngData,
 }

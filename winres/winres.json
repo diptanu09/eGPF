@@ -38,23 +38,23 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "2.3.1",
-          "product_version": "2.3.1"
+          "file_version": "2.3.2",
+          "product_version": "2.3.2"
         },
         "info": {
           "0409": {
             "Comments": "eGPF Local Client",
             "CompanyName": "The Accountant General (A&E), Tripura",
             "FileDescription": "eGPF Client",
-            "FileVersion": "2.3.1",
+            "FileVersion": "2.3.2",
             "InternalName": "eGPF Client",
             "LegalCopyright": "© 2026 O/o the Accountant General (A&E), Tripura.",
             "LegalTrademarks": "",
             "OriginalFilename": "eGPF-app.exe",
-            "PrivateBuild": "11.0",
+            "PrivateBuild": "12.0",
             "ProductName": "eGPF Enterprise Application",
-            "ProductVersion": "2.3.1",
-            "SpecialBuild": "2.3.1"
+            "ProductVersion": "2.3.2",
+            "SpecialBuild": "2.3.2"
           }
         }
       }

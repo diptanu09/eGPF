@@ -9,9 +9,9 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-//go:embed assets/profiles/role_admin.png
+//go:embed assets/profiles/avatar_5.png
 var ResourceRoleAdminPngData []byte
 var ResourceRoleAdminPng = &fyne.StaticResource{
-	StaticName:    "assets/profiles/role_admin.png",
+	StaticName:    "assets/profiles/avatar_5.png",
 	StaticContent: ResourceRoleAdminPngData,
 }
