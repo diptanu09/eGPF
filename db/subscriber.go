@@ -28,12 +28,21 @@ func FetchSeriesDropdownOptions() ([]string, map[string]string, error) {
 
 	for rows.Next() {
 		var id, name string
-		if err := rows.Scan(&id, &name); err == nil {
-			displayStr := fmt.Sprintf("%s - %s", id, name)
-			options = append(options, displayStr)
-			mapping[displayStr] = id
+		// Check for scan errors immediately rather than skipping silently
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, nil, err
 		}
+
+		displayStr := fmt.Sprintf("%s - %s", id, name)
+		options = append(options, displayStr)
+		mapping[displayStr] = id
 	}
+
+	// 👇 This fixes the sqlrowserr linter warning
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
 	return options, mapping, nil
 }
 
@@ -294,17 +303,28 @@ func FetchApplicationPermissions() (map[string]bool, error) {
 
 	rows, err := db.Query("SELECT config_key, config_value FROM agartala.system_config WHERE config_key LIKE 'perm_%';")
 	if err != nil {
-		return perms, nil
+		return perms, nil // Falling back to defaults on query failure
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var k, v string
-		if err := rows.Scan(&k, &v); err == nil {
+		if err := rows.Scan(&k, &v); err != nil {
+			return perms, nil // Safely return partial/default perms if a scan fails
+		}
+
+		// Guard against a panic just in case config_key is somehow shorter than 5 chars
+		if len(k) >= 5 {
 			trimmedKey := k[5:] // Trim away 'perm_' prefix
 			perms[trimmedKey] = (v == "true" || v == "1")
 		}
 	}
+
+	// 👇 This fixes the sqlrowserr linter warning
+	if err := rows.Err(); err != nil {
+		return perms, nil // Safely return partial/default perms on iteration failure
+	}
+
 	return perms, nil
 }
 

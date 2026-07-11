@@ -10,7 +10,8 @@ import (
 var db *sql.DB
 
 func InitDatabase() error {
-	connStr := "host=10.47.240.169 port=5432 user=egpf_app_user password='P@ssw()rd123' dbname='AsstPro' sslmode=disable search_path=agartala"
+	// connStr := "host=10.47.240.169 port=5432 user=egpf_app_user password='P@ssw()rd123' dbname='AsstPro' sslmode=disable search_path=agartala"
+	connStr := "host=localhost port=5432 user=egpf_app_user password='P@ssw()rd' dbname='AsstPro' sslmode=disable search_path=agartala"
 	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {

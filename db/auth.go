@@ -127,10 +127,18 @@ func FetchPendingUsers() ([]string, error) {
 	var users []string
 	for rows.Next() {
 		var u string
-		if err := rows.Scan(&u); err == nil {
-			users = append(users, u)
+		// If scanning fails, return the error immediately rather than skipping silently
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
 		}
+		users = append(users, u)
 	}
+
+	// 👇 This fixes the sqlrowserr linter warning
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return users, nil
 }
 
