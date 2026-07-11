@@ -1,5 +1,14 @@
 package db
 
+/*
+// This CGO block tells Go to load the VMProtect SDK
+#cgo CFLAGS: -I../vmp_sdk/Include
+#cgo LDFLAGS: -L../vmp_sdk/Lib/Windows -lVMProtectSDK64
+#include "VMProtectSDK.h"
+#include <stdlib.h>
+*/
+import "C"
+
 import (
 	"database/sql"
 	"fmt"
@@ -7,6 +16,7 @@ import (
 	"net"
 	"os"
 	"time"
+	"unsafe"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -29,13 +39,25 @@ func getSystemIdentifier() string {
 }
 
 func AuthenticateUser(username, password string) (string, time.Time, error) {
+	// ==============================================================================
+	// VMPROTECT SDK: ISOLATE CORE LOGIC
+	// Wrap this critical security function in the Ultra virtualization macro.
+	// This prevents memory dumping of the hashing algorithms and credential checks.
+	// ==============================================================================
+	marker := C.CString("eGPF_Auth_Logic")
+	defer C.free(unsafe.Pointer(marker))
+
+	// Tell VMProtect to start protecting here
+	C.VMProtectBeginUltra(marker)
+	defer C.VMProtectEnd() // Tell VMProtect to stop protecting when the function finishes
+	// ==============================================================================
+
 	var userRole string
 	var rawLastLogin time.Time
 	var status string
 	var dbSystemID sql.NullString
 	var storedHash string // Holds the encrypted hash retrieved from the database
 
-	// Wrapped last_login with COALESCE to handle NULL values for brand new accounts safely without causing driver scan errors
 	query := "SELECT password, role, COALESCE(last_login, NOW()), COALESCE(status, 'approved'), system_id FROM users WHERE username = $1;"
 	err := db.QueryRow(query, username).Scan(&storedHash, &userRole, &rawLastLogin, &status, &dbSystemID)
 	if err != nil {
@@ -72,13 +94,11 @@ func AuthenticateUser(username, password string) (string, time.Time, error) {
 }
 
 func RefreshUserTimestamp(username string) {
-	// Added error validation to prevent silent failures if connection drops during checkpoint logging
 	if _, err := db.Exec("UPDATE users SET last_login = NOW() WHERE username = $1;", username); err != nil {
 		log.Printf("Warning: Failed to refresh user session login footprint: %v", err)
 	}
 }
 
-// AUDIT HOOK: Added operator tracker parameter and automated system log write execution path
 func ExecuteInsertUser(operator, newUsername, newPassword, newRole string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -127,14 +147,12 @@ func FetchPendingUsers() ([]string, error) {
 	var users []string
 	for rows.Next() {
 		var u string
-		// If scanning fails, return the error immediately rather than skipping silently
 		if err := rows.Scan(&u); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
 	}
 
-	// 👇 This fixes the sqlrowserr linter warning
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -142,7 +160,6 @@ func FetchPendingUsers() ([]string, error) {
 	return users, nil
 }
 
-// AUDIT HOOK: Captures external administrative approvals or purges from registration queue
 func ExecuteProcessApproval(operator, targetUser, assignedRole string, approve bool) error {
 	if approve {
 		_, err := db.Exec("UPDATE users SET status = 'approved', role = $1 WHERE username = $2;", assignedRole, targetUser)
@@ -163,7 +180,6 @@ func ExecuteProcessApproval(operator, targetUser, assignedRole string, approve b
 func FetchSystemUsers(searchFilter string) ([][]string, error) {
 	directoryData := [][]string{}
 
-	// Added COALESCE to capture avatar strings
 	baseQuery := `
         SELECT username, role, COALESCE(last_login::text, 'Never Logged In'), status, COALESCE(system_id, 'UNLOCKED'), COALESCE(avatar_selection, 'default') 
         FROM users`
@@ -193,7 +209,6 @@ func FetchSystemUsers(searchFilter string) ([][]string, error) {
 	return directoryData, nil
 }
 
-// AUDIT HOOK: Logs administrative modifications to role levels
 func ExecuteUpdateUserRole(operator, username, newRole string) error {
 	_, err := db.Exec("UPDATE users SET role = $1 WHERE username = $2;", newRole, username)
 	if err == nil {
@@ -203,7 +218,6 @@ func ExecuteUpdateUserRole(operator, username, newRole string) error {
 	return err
 }
 
-// AUDIT HOOK: Added hardware lock tracking checkpoint logging execution bounds
 func ExecuteResetSystemLock(operator, username string) error {
 	_, err := db.Exec("UPDATE users SET system_id = NULL WHERE username = $1;", username)
 	if err == nil {
@@ -213,7 +227,6 @@ func ExecuteResetSystemLock(operator, username string) error {
 	return err
 }
 
-// AUDIT HOOK: Tracks account suspension and reactivation flags
 func ExecuteToggleUserSuspend(operator, username string, shouldSuspend bool) error {
 	targetStatus := "approved"
 	actionWord := "Reactivated"
@@ -231,7 +244,6 @@ func ExecuteToggleUserSuspend(operator, username string, shouldSuspend bool) err
 	return err
 }
 
-// AUDIT HOOK: Records execution vectors for forced administrative security key overrides
 func ExecuteResetUserPassword(operator, username, newPassword string) error {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -245,7 +257,6 @@ func ExecuteResetUserPassword(operator, username, newPassword string) error {
 	return err
 }
 
-// AUDIT HOOK: Logs live workstation signature unbinding drop sequences
 func ExecuteTerminateUserSession(operator, username string) error {
 	_, err := db.Exec("UPDATE users SET system_id = NULL, last_login = NULL WHERE username = $1;", username)
 	if err == nil {
@@ -255,7 +266,6 @@ func ExecuteTerminateUserSession(operator, username string) error {
 	return err
 }
 
-// ExecuteUpdateUserAvatar overwrites the static layout badge tracker assignment for a profile
 func ExecuteUpdateUserAvatar(operator, username, chosenAvatar string) error {
 	if db == nil {
 		return fmt.Errorf("database handle uninitialized")
