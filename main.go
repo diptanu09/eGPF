@@ -12,8 +12,9 @@ import (
 
 func main() {
 	// 1. Establish data layer connectivity
-	if err := db.InitDatabase(); err != nil {
-		log.Fatalf("Database initialization terminal breakdown: %v", err)
+	_, err := db.InitDatabase()
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
 	// 2. Provision window framing contexts

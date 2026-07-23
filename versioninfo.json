@@ -3,8 +3,8 @@
         "FileVersion": {
             "Major": 2,
             "Minor": 3,
-            "Patch": 0,
-            "Build": 3
+            "Patch": 4,
+            "Build": 0
         },
         "ProductVersion": {
             "Major": 2,
@@ -21,12 +21,12 @@
     "StringFileInfo": {
         "CompanyName": "Office of the Accountant General (A&E), Tripura",
         "FileDescription": "eGPF Core System Terminal Gateway Instance",
-        "FileVersion": "2.3.0.3",
+        "FileVersion": "2.3.4.0",
         "InternalName": "egpf-app.exe",
         "LegalCopyright": "© 2026 O/o the Accountant General (A&E), Tripura.",
         "OriginalFilename": "egpf-app.exe",
         "ProductName": "eGPF Enterprise Application",
-        "ProductVersion": "2.3.0.3"
+        "ProductVersion": "2.3.4.0"
     },
     "VarFileInfo": {
         "Translation": {

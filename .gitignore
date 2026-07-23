@@ -9,9 +9,15 @@
 bin/
 dist/
 
+
 # IDE
 .vscode/
 .idea/
+.vs/
 
 # Environment
 .env
+.vmp
+.vmp.bak
+.log
+.sys
