@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -87,9 +88,11 @@ func FetchLatestAppVersion() (string, string, error) {
 	}
 	err = db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'download_path';").Scan(&downloadPath)
 	if err != nil {
-		return "2.3.4", "", nil
+		// return "2.3.4", "", nil
+		return strings.TrimSpace(latestVersion), "", nil
 	}
-	return latestVersion, downloadPath, nil
+	// return latestVersion, downloadPath, nil
+	return strings.TrimSpace(latestVersion), strings.TrimSpace(downloadPath), nil
 }
 
 // ExecuteUpdateAppConfig updates systemic application version and update path settings
