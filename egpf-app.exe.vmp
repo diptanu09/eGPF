@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Document Version="2">
+    <Protection InputFileName="egpf-app.exe" Options="525000" WaterMarkName="Mr. F4LC0N">
+        <Messages />
+        <Folders />
+        <Procedures>
+            <Procedure MapAddress="egpf-app/db.AuthenticateUser.deferwrap1" Options="0" CompilationType="1" />
+            <Procedure MapAddress="egpf-app/db.AuthenticateUser.AuthenticateUser.func1.func2" Options="0" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateDDOProfile.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateRecord.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchAllDDOMasterProfiles.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchPendingUsers.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchSeriesDropdownOptions.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchSubscriberRegistry.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchSystemUsers.deferwrap1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.InitDatabase.Printf.func1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.InitDatabase.Println.func2" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.RefreshUserTimestamp.Printf.func1" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db._Cfunc_VMProtectBeginUltra.abi0" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db._Cfunc_VMProtectEnd.abi0" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db._Cfunc_free.abi0" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db._cgo_cmalloc.abi0" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.InitDatabase" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateAppConfig" IncludedInCompilation="0" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.getEnvAsInt" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteInsertAuditLog" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchSeriesDropdownOptions" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchSubscriberRegistry" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateRecord" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteDeleteRecord" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteInsertSeries" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchDDODetails" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchAllDDOMasterProfiles" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteResetSubscriberPIN" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteCreateNewSubscriber" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteSavePermissionToggle" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.EvaluateUserPermission" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateDDOProfile" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db._Cfunc_CString" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.getSystemIdentifier" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.AuthenticateUser" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.RefreshUserTimestamp" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteRegisterSelf" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchPendingUserCount" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchPendingUsers" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteProcessApproval" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.FetchSystemUsers" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateUserRole" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteToggleUserSuspend" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteResetUserPassword" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteTerminateUserSession" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateUserAvatar" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db._Cfunc_VMProtectEnd" Options="0" CompilationType="2" />
+            <Procedure MapAddress="egpf-app/db.ExecuteUpdateAppConfig.deferwrap1" IncludedInCompilation="0" Options="0" CompilationType="2" />
+        </Procedures>
+        <Objects />
+    </Protection>
+    <DLLBox>
+        <Folders />
+    </DLLBox>
+    <Script />
+    <LicenseManager ProductCode="vL/9YBTTt5U=" Algorithm="RSA" Bits="2048" PublicExp="AAEAAQ==" PrivateExp="fB/pNLBIiJsxBxuFwnB7vOBjd9i9fx9nuo964aZM08C9XVck34gr8A0RxlNvC+MK9GsupAEliH0IbfNzQDtKxkWnYdqw/KdTypQD9Itpv8PK5YpYy8Z+Y46QN0qi/80rf2PYg0B4CvYBWogxrQCUcJvJXxWPhhvNBp3g1hESYkMUyjt9pLzWAAF6fY6TwAseK7JidHwz9yKnPfQ+vaIX84jwCUAlEEy/0v8FyJkXhY8eM7FNOLOvHZK0GuBdh7vfz4PNShPQiafQiPmdj6e9m3dAoDcaw+nTnroQIcL0B3aztSUxRUiZ77oCwPe/iWB+o+OcDz/rqw5OM/+ybRzTrQ==" Modulus="zlselYpgJ+xfbL7glpjyppJqfXp6pRIDbblXdkhsl9BeBUoXaKUFqGBiAOdt2sbnWg2eSTZEccP9CDokYJhlDor4KJaF/jJbfKNagrG0KGBwsUtWzlybAxqUFpd3zDR3i5JAMZ7bsDcLkb3ub1xcTOqaJbJ91q5Hxj+L9v+r9pz9yG+78ODxFBRVSmMh4yKtnK05g0mr9PzzEXDwoUPfc/2yjWHD/H7j0hGMKw0Sana1CZ6+EXewfZxI8iq+q9lrLL9V5m01vCpxJGo1G2ehblsMr2LbY/3RDQircuutFJ+TBwm4QrwnfCXEqheWyp/ZA/VLnbkhPPEOP0AVvLFNXQ==">
+        <License Date="2026-07-23" CustomerName="O/o the Accountant General (A&amp;E), Tripura" CustomerEmail="agaetripura@cag.gov.in" SerialNumber="zlF4B4KdNlwBg5EgdhHhZhVxlpSQKF79dK4CPhDddldHGLKNDc+UjqD/x0TNJkEqOEldMEQoM+mixc7Gy9bp9BbOUnZlp2N6X09yjyLGh82LLXz0w7RsAHAWtdABmbMsEBwedy8PZVKNFZFUkdD736LVirOqdWDrng0iEgwRm47FScphB/l8ZVhk4g6sNZy9wpDke9Cl0jtv38DP4RwzfsJQgUQLQehuEdtLMeBhwC02vE9kr7vGHGKhgFhzMDVwA3rpDNn1y6m7+brKYX0Z0krZVOkHoiNoCM+FogGcc2lfdcJIB9ynD7jVSIuSVqyp0iofl4/6JL5DPLWbpkZ5sg==">IT Cell</License>
+    </LicenseManager>
+</Document>

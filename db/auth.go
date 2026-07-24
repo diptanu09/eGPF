@@ -1,11 +1,10 @@
 package db
 
 /*
-// This CGO block tells Go to load the VMProtect SDK
+#include <stdlib.h>
 #cgo CFLAGS: -I../vmp_sdk/Include/C/
 #cgo LDFLAGS: -L../vmp_sdk/Lib/Windows -lVMProtectSDK64
 #include "VMProtectSDK.h"
-#include <stdlib.h>
 */
 import "C"
 
