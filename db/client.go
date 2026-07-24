@@ -84,7 +84,7 @@ func FetchLatestAppVersion() (string, string, error) {
 	var latestVersion, downloadPath string
 	err := db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'latest_version';").Scan(&latestVersion)
 	if err != nil {
-		return "2.3.4", "", nil
+		return "2.3.5", "", nil
 	}
 	err = db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'download_path';").Scan(&downloadPath)
 	if err != nil {
@@ -135,4 +135,17 @@ func getEnvAsInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+// FetchReleaseNotes retrieves the release summary description for the latest version update
+func FetchReleaseNotes() string {
+	if db == nil {
+		return "• Live Enterprise Support Chat Portal\n• Real-Time Unread Message Badge Indicator\n• Dynamic Architecture & Performance Optimizations"
+	}
+	var notes string
+	err := db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'release_notes';").Scan(&notes)
+	if err != nil || strings.TrimSpace(notes) == "" {
+		return "• Live Enterprise Support Chat Portal\n• Real-Time Unread Message Badge Indicator\n• Dynamic Architecture & Performance Optimizations"
+	}
+	return strings.TrimSpace(notes)
 }

@@ -19,7 +19,6 @@ func RenderLoginView(app fyne.App, window fyne.Window) {
 	window.Resize(fyne.NewSize(450, 600))
 	window.CenterOnScreen()
 
-	// Use the embedded static resource instead of an external file path
 	var logoImg *canvas.Image
 	if ResourceLogoPng != nil {
 		logoImg = canvas.NewImageFromResource(ResourceLogoPng)
@@ -88,7 +87,6 @@ func RenderLoginView(app fyne.App, window fyne.Window) {
 		footerText,
 	)
 
-	// Tied labels directly to the dashboard version constraints to bypass obfuscation drops
 	loginFooterLabel := widget.NewLabelWithStyle(
 		fmt.Sprintf("System Registry Core v%s\n%s", CurrentClientVersion, CopyrightInfo),
 		fyne.TextAlignCenter,
@@ -108,18 +106,18 @@ func RenderLoginView(app fyne.App, window fyne.Window) {
 
 	window.SetContent(mainLayout)
 
-	// Automated Version Alignment Control Check Hook Verification
+	// Automated Version Alignment Control Check
 	go func() {
-		// Small delay to ensure the parent frame rendering cycles complete smoothly
 		time.Sleep(200 * time.Millisecond)
 
 		latestVer, sharedPath, err := db.FetchLatestAppVersion()
 		if err == nil && latestVer != CurrentClientVersion {
 			window.Canvas().Scale()
 
-			// FIXED: Created the entry widget explicitly to avoid invalid method chaining syntax errors
 			pathDisplayEntry := widget.NewEntry()
 			pathDisplayEntry.SetText(sharedPath)
+
+			releaseNotes := db.FetchReleaseNotes()
 
 			msgContent := container.NewVBox(
 				widget.NewLabelWithStyle("⚠️ CRITICAL SYSTEM VERSION MISMATCH", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
@@ -127,20 +125,21 @@ func RenderLoginView(app fyne.App, window fyne.Window) {
 				widget.NewLabel(fmt.Sprintf("Local Executable Version: v%s", CurrentClientVersion)),
 				widget.NewLabel(fmt.Sprintf("Required Database Version: v%s", latestVer)),
 				widget.NewSeparator(),
+				widget.NewLabelWithStyle("Release Notes for New Version:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+				widget.NewLabel(releaseNotes),
+				widget.NewSeparator(),
 				widget.NewLabel("Access Denied: Terminal connection cannot proceed on an outdated build."),
 				widget.NewLabelWithStyle("Please update your local executable file immediately.", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
 				widget.NewSeparator(),
 				widget.NewLabel("Shared Distribution Network Path:"),
-				pathDisplayEntry, // Embedded cleanly now that it's an independent instance variable
+				pathDisplayEntry,
 			)
 
-			// Show a blocking custom dialog box that locks interaction actions
 			d := dialog.NewCustom("Mandatory System Update Required", "Exit Terminal", msgContent, window)
 			d.SetOnClosed(func() {
 				app.Quit()
 			})
 
-			// Disable operational center interactives to prevent unauthorized login bypasses
 			loginButton.Disable()
 			registerButton.Disable()
 			usernameBox.Disable()

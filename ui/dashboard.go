@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.3.4"
+	CurrentClientVersion   = "2.3.5"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
@@ -1010,6 +1010,44 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			<-ticker.C
 		}
 	}()
+
+	// --------------------------------------------------------------------------
+	// FIRST-LAUNCH AFTER UPDATE: "WHAT'S NEW" POPUP DIALOG
+	// --------------------------------------------------------------------------
+	lastSeenVersion := app.Preferences().StringWithFallback("last_seen_version", "")
+
+	if lastSeenVersion != CurrentClientVersion {
+		releaseNotes := db.FetchReleaseNotes()
+
+		whatsNewContent := container.NewVBox(
+			widget.NewLabelWithStyle(fmt.Sprintf("🎉 Welcome to eGPF System Core v%s!", CurrentClientVersion), fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			widget.NewSeparator(),
+			widget.NewLabelWithStyle("What's New in This Version:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
+			widget.NewLabel(releaseNotes),
+			widget.NewSeparator(),
+			widget.NewLabelWithStyle("Key Highlights & New Fetchers:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabel("💬 1. Support Chat Portal (User <-> Admin real-time communication)"),
+			widget.NewLabel("🔴 2. Unread Chat Badge Indicator on Dashboard Navigation Header"),
+			widget.NewLabel("🔒 3. VMProtect & Security CGO Core Enhancements"),
+			widget.NewSeparator(),
+			widget.NewLabelWithStyle("Thank you for using the eGPF Enterprise Gateway.", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
+		)
+
+		whatsNewDialog := dialog.NewCustom(
+			fmt.Sprintf("eGPF System Update v%s Released", CurrentClientVersion),
+			"Acknowledge & Continue",
+			whatsNewContent,
+			window,
+		)
+		whatsNewDialog.Resize(fyne.NewSize(520, 380))
+
+		// Persist that the user has acknowledged this version update
+		app.Preferences().SetString("last_seen_version", CurrentClientVersion)
+
+		// Display dialog after window content renders
+		trackDialog(whatsNewDialog)
+		whatsNewDialog.Show()
+	}
 
 	headerLayout := container.NewBorder(
 		nil, nil, nil,
