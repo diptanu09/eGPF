@@ -17,7 +17,7 @@ dist/
 
 # Environment
 .env
-.vmp
-.vmp.bak
+*.vmp
+*.vmp.bak
 *.log
-.sys
+*.sys

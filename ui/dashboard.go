@@ -225,7 +225,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		clearButton,
 	)
 
-	// UPDATED: Dynamic Avatar lookup evaluation supporting static assignments
+	// Dynamic Avatar lookup evaluation supporting static assignments
 	resolveProfileAvatar := func(avatarSelection string, targetRole string, width, height float32) fyne.CanvasObject {
 		var avatarRes fyne.Resource
 
@@ -241,12 +241,10 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		default:
 			switch targetRole {
 			case "admin":
-				// FIXED: Match lowercase if generated that way by the bundler tool
 				if ResourceRoleAdminPng != nil {
 					avatarRes = ResourceRoleAdminPng
 				}
 			case "operator":
-				// FIXED: Match lowercase if generated that way by the bundler tool
 				if ResourceRoleOperatorPng != nil {
 					avatarRes = ResourceRoleOperatorPng
 				}
@@ -453,13 +451,25 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	actionMenuButton.Selected = "[Choose Row Operation]"
 	actionMenuSizer := container.NewGridWrap(fyne.NewSize(240, 36), actionMenuButton)
 
-	systemToolsMenu := widget.NewSelect([]string{"[System Tools Portal Menu]", "DDO Master Directory Registry", "Add New Fund Series Category", "Manage Local User Profiles", "Pending Registration Requests", "Feature Permissions Overrides", "App Distribution Version Setup"}, func(tool string) {
+	systemToolsMenu := widget.NewSelect([]string{
+		"[System Tools Portal Menu]",
+		"Support Chat Portal", // Extended for Support Communication
+		"DDO Master Directory Registry",
+		"Add New Fund Series Category",
+		"Manage Local User Profiles",
+		"Pending Registration Requests",
+		"Feature Permissions Overrides",
+		"App Distribution Version Setup",
+	}, func(tool string) {
 		resetInactivityTimer()
-		if role != "admin" && tool != "DDO Master Directory Registry" {
+		if role != "admin" && tool != "DDO Master Directory Registry" && tool != "Support Chat Portal" {
 			dialog.ShowError(fmt.Errorf("Security Constraint: Administrative levels required."), window)
 			return
 		}
 		switch tool {
+		case "Support Chat Portal":
+			ShowSupportChatPortal(window, username, role)
+
 		case "DDO Master Directory Registry":
 			if !canViewDdoData {
 				dialog.ShowError(fmt.Errorf("Access Denied"), window)
@@ -966,7 +976,50 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	)
 	profileCard := widget.NewCard("eGPF Operational Core Enterprise Dashboard", "Secure Profile Scope", profileHeaderLayout)
 
-	headerLayout := container.NewBorder(nil, nil, nil, container.NewHBox(container.NewPadded(dashLogo), logoutButton), profileCard)
+	// Live Unread Chat Badge Integration
+	unreadBadgeButton := widget.NewButtonWithIcon("💬 Support Chat", theme.MailSendIcon(), func() {
+		resetInactivityTimer()
+		ShowSupportChatPortal(window, username, role)
+	})
+
+	go func() {
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			activityLock.Lock()
+			activeStatus := isSessionActive
+			activityLock.Unlock()
+
+			if !activeStatus {
+				return
+			}
+
+			count, err := db.FetchTotalUnreadCount(username)
+			if err == nil {
+				if count > 0 {
+					unreadBadgeButton.SetText(fmt.Sprintf("🔴 Chat (%d Unread)", count))
+					unreadBadgeButton.Importance = widget.HighImportance
+				} else {
+					unreadBadgeButton.SetText("💬 Support Chat")
+					unreadBadgeButton.Importance = widget.MediumImportance
+				}
+				unreadBadgeButton.Refresh()
+			}
+
+			<-ticker.C
+		}
+	}()
+
+	headerLayout := container.NewBorder(
+		nil, nil, nil,
+		container.NewHBox(
+			container.NewPadded(unreadBadgeButton),
+			container.NewPadded(dashLogo),
+			logoutButton,
+		),
+		profileCard,
+	)
 
 	dashboardFooter := container.NewVBox(
 		widget.NewSeparator(),
