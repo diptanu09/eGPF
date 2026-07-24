@@ -19,5 +19,5 @@ dist/
 .env
 .vmp
 .vmp.bak
-.log
+*.log
 .sys
