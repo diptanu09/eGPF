@@ -90,14 +90,12 @@ func FetchLatestAppVersion() (string, string, error) {
 	var latestVersion, downloadPath string
 	err := db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'latest_version';").Scan(&latestVersion)
 	if err != nil {
-		return "2.3.5", "", nil
+		return "2.3.6", "", nil
 	}
 	err = db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'download_path';").Scan(&downloadPath)
 	if err != nil {
-		// return "2.3.4", "", nil
 		return strings.TrimSpace(latestVersion), "", nil
 	}
-	// return latestVersion, downloadPath, nil
 	return strings.TrimSpace(latestVersion), strings.TrimSpace(downloadPath), nil
 }
 
@@ -145,13 +143,14 @@ func getEnvAsInt(key string, fallback int) int {
 
 // FetchReleaseNotes retrieves the release summary description for the latest version update
 func FetchReleaseNotes() string {
+	const defaultNotes = "• Live Enterprise Support Chat Portal with User-Admin Messaging\n• Real-Time Unread Message Badge Indicator\n• Advanced VMProtect Security & Code Virtualization\n• Core Architecture & Connection Resiliency Improvements"
 	if db == nil {
-		return "• Live Enterprise Support Chat Portal\n• Real-Time Unread Message Badge Indicator\n• Dynamic Architecture & Performance Optimizations"
+		return defaultNotes
 	}
 	var notes string
 	err := db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'release_notes';").Scan(&notes)
 	if err != nil || strings.TrimSpace(notes) == "" {
-		return "• Live Enterprise Support Chat Portal\n• Real-Time Unread Message Badge Indicator\n• Dynamic Architecture & Performance Optimizations"
+		return defaultNotes
 	}
 	return strings.TrimSpace(notes)
 }

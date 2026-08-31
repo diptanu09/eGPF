@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.3.5"
+	CurrentClientVersion   = "2.3.6"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
@@ -1025,10 +1025,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			widget.NewLabelWithStyle("What's New in This Version:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
 			widget.NewLabel(releaseNotes),
 			widget.NewSeparator(),
-			widget.NewLabelWithStyle("Key Highlights & New Fetchers:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			widget.NewLabel("💬 1. Support Chat Portal (User <-> Admin real-time communication)"),
-			widget.NewLabel("🔴 2. Unread Chat Badge Indicator on Dashboard Navigation Header"),
-			widget.NewLabel("🔒 3. VMProtect & Security CGO Core Enhancements"),
+			widget.NewLabelWithStyle("Key Highlights & New Features:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabel("💬 1. Support Chat Portal (Instant User <-> Admin real-time communication)"),
+			widget.NewLabel("🔴 2. Live Unread Chat Badge Indicator on Dashboard Navigation Header"),
+			widget.NewLabel("🔒 3. Advanced VMProtect Security & Code Virtualization Layer"),
+			widget.NewLabel("⚡ 4. Database Connection Resiliency & Performance Optimizations"),
 			widget.NewSeparator(),
 			widget.NewLabelWithStyle("Thank you for using the eGPF Enterprise Gateway.", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 		)
