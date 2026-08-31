@@ -3,11 +3,13 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -17,61 +19,87 @@ import (
 // ShowSupportChatPortal opens a dedicated popup dialog for real-time Support Communication
 func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRole string) {
 	var targetUser string
+	var chatLock sync.Mutex
 	isAdmin := (currentRole == "admin")
+
+	var lastLoadedCount int = -1
+	var lastLoadedTarget string = ""
 
 	// 1. UI Widgets Setup
 	messageListContainer := container.NewVBox()
 	chatScroll := container.NewScroll(messageListContainer)
-	chatScroll.SetMinSize(fyne.NewSize(580, 360))
+	chatScroll.SetMinSize(fyne.NewSize(620, 360))
 
 	messageInput := widget.NewEntry()
-	messageInput.SetPlaceHolder("Type your message here...")
+	messageInput.SetPlaceHolder("Type your support message here...")
 
 	headerStatusLabel := widget.NewLabelWithStyle(
 		"Select a contact thread to begin communication.",
 		fyne.TextAlignLeading,
-		fyne.TextStyle{Bold: true, Italic: true},
+		fyne.TextStyle{Bold: true},
 	)
 
 	// 2. Chat History Refresh Logic
-	refreshChatHistory := func() {
+	refreshChatHistory := func(force bool) {
+		chatLock.Lock()
+		defer chatLock.Unlock()
+
 		if targetUser == "" {
 			return
 		}
 
-		messages, err := db.FetchChatHistory(currentUsername, targetUser, 100)
+		messages, err := db.FetchChatHistory(currentUsername, targetUser, 150)
 		if err != nil {
 			return
 		}
+
+		// Avoid re-rendering and layout thrashing if no new messages arrived
+		if !force && len(messages) == lastLoadedCount && targetUser == lastLoadedTarget {
+			return
+		}
+
+		lastLoadedCount = len(messages)
+		lastLoadedTarget = targetUser
 
 		_ = db.MarkMessagesAsRead(currentUsername, targetUser)
 
 		messageListContainer.Objects = nil
 
 		if len(messages) == 0 {
-			emptyLbl := widget.NewLabelWithStyle("No prior messages found. Start the conversation!", fyne.TextAlignCenter, fyne.TextStyle{Italic: true})
-			messageListContainer.Add(container.NewCenter(emptyLbl))
+			emptyLbl := widget.NewLabelWithStyle(
+				fmt.Sprintf("No prior messages with %s. Send a message below to start the conversation.", targetUser),
+				fyne.TextAlignCenter,
+				fyne.TextStyle{Italic: true},
+			)
+			messageListContainer.Add(container.NewPadded(container.NewCenter(emptyLbl)))
 		} else {
 			for _, msg := range messages {
 				timeStr := msg.CreatedAt.Format("15:04:05 | Jan 02")
-				isSelf := (strings.EqualFold(msg.SenderUsername, currentUsername))
+				isSelf := strings.EqualFold(msg.SenderUsername, currentUsername)
 
-				senderPrefix := fmt.Sprintf("[%s] %s:", timeStr, msg.SenderUsername)
+				var senderTitle string
 				if isSelf {
-					senderPrefix = fmt.Sprintf("[%s] You (%s):", timeStr, msg.SenderUsername)
+					senderTitle = fmt.Sprintf("You (%s) • %s", msg.SenderUsername, timeStr)
+				} else {
+					senderTitle = fmt.Sprintf("%s • %s", msg.SenderUsername, timeStr)
 				}
 
-				headerLbl := widget.NewLabelWithStyle(senderPrefix, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+				headerLbl := widget.NewLabelWithStyle(senderTitle, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 				bodyLbl := widget.NewLabel(msg.MessageText)
 				bodyLbl.Wrapping = fyne.TextWrapWord
 
 				bubbleContent := container.NewVBox(headerLbl, bodyLbl)
 				card := widget.NewCard("", "", bubbleContent)
 
+				// Constrain bubble width and align (outgoing to right, incoming to left)
+				bubbleWrapper := container.NewGridWrap(fyne.NewSize(450, card.MinSize().Height), card)
+
 				if isSelf {
-					messageListContainer.Add(container.NewHBox(widget.NewLabel("       "), container.NewGridWrap(fyne.NewSize(420, card.MinSize().Height+20), card)))
+					row := container.NewBorder(nil, nil, layout.NewSpacer(), nil, bubbleWrapper)
+					messageListContainer.Add(row)
 				} else {
-					messageListContainer.Add(container.NewHBox(container.NewGridWrap(fyne.NewSize(420, card.MinSize().Height+20), card), widget.NewLabel("       ")))
+					row := container.NewBorder(nil, nil, nil, layout.NewSpacer(), bubbleWrapper)
+					messageListContainer.Add(row)
 				}
 			}
 		}
@@ -87,7 +115,7 @@ func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRo
 			return
 		}
 		if targetUser == "" {
-			dialog.ShowInformation("Select Contact", "Please select an admin or user thread first.", window)
+			dialog.ShowInformation("Select Contact", "Please select an active contact thread first.", window)
 			return
 		}
 
@@ -98,10 +126,10 @@ func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRo
 		}
 
 		messageInput.SetText("")
-		refreshChatHistory()
+		refreshChatHistory(true)
 	}
 
-	sendBtn := widget.NewButtonWithIcon("Send", theme.MailSendIcon(), sendMessage)
+	sendBtn := widget.NewButtonWithIcon("Send Message", theme.MailSendIcon(), sendMessage)
 	sendBtn.Importance = widget.HighImportance
 
 	messageInput.OnSubmitted = func(_ string) {
@@ -110,59 +138,86 @@ func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRo
 
 	inputRow := container.NewBorder(nil, nil, nil, sendBtn, messageInput)
 
-	// 4. Contact Selector Panel
+	// 4. Contact Selector Panel Setup
 	var contactSelector fyne.CanvasObject
 
 	if isAdmin {
+		labelToUsername := make(map[string]string)
 		threadSelectDropdown := widget.NewSelect([]string{}, nil)
-		threadSelectDropdown.PlaceHolder = "[ Select User Thread ]"
+		threadSelectDropdown.PlaceHolder = "[ Select User Conversation ]"
 
 		loadUserThreads := func() {
-			threads, err := db.FetchActiveUserThreads()
+			threads, err := db.FetchActiveUserThreads(currentUsername)
 			if err != nil || len(threads) == 0 {
-				threadSelectDropdown.Options = []string{"No user threads found"}
+				threadSelectDropdown.Options = []string{"No user threads registered"}
 				threadSelectDropdown.Refresh()
 				return
 			}
 
 			var options []string
+			labelToUsername = make(map[string]string)
+
 			for _, t := range threads {
-				opt := t.Username
+				var opt string
 				if t.UnreadCount > 0 {
-					opt = fmt.Sprintf("🔴 %s (%d unread)", t.Username, t.UnreadCount)
+					opt = fmt.Sprintf("🔴 %s (%d unread) - %s", t.Username, t.UnreadCount, t.LastMessage)
+				} else if t.LastMessage != "No messages yet" {
+					opt = fmt.Sprintf("💬 %s - %s", t.Username, t.LastMessage)
+				} else {
+					opt = fmt.Sprintf("👤 %s (New User)", t.Username)
 				}
 				options = append(options, opt)
+				labelToUsername[opt] = t.Username
 			}
+
 			threadSelectDropdown.Options = options
 			threadSelectDropdown.Refresh()
+
+			if len(options) > 0 {
+				threadSelectDropdown.SetSelected(options[0])
+			}
 		}
 
 		threadSelectDropdown.OnChanged = func(selected string) {
-			if selected == "" || selected == "No user threads found" {
+			if selected == "" || selected == "No user threads registered" {
 				return
 			}
 
-			parsedUsername := strings.TrimSpace(selected)
-			if strings.Contains(parsedUsername, "🔴") {
-				parts := strings.Split(parsedUsername, " ")
-				if len(parts) >= 2 {
-					parsedUsername = parts[1]
+			u, exists := labelToUsername[selected]
+			if exists && u != "" {
+				targetUser = u
+			} else {
+				// Fallback cleanup
+				clean := strings.TrimPrefix(selected, "🔴 ")
+				clean = strings.TrimPrefix(clean, "💬 ")
+				clean = strings.TrimPrefix(clean, "👤 ")
+				parts := strings.Split(clean, " ")
+				if len(parts) > 0 {
+					targetUser = parts[0]
 				}
 			}
 
-			targetUser = parsedUsername
-			headerStatusLabel.SetText(fmt.Sprintf("💬 Active Conversation with User: %s", targetUser))
-			refreshChatHistory()
+			headerStatusLabel.SetText(fmt.Sprintf("💬 Conversation with User: %s", targetUser))
+			refreshChatHistory(true)
 		}
 
-		loadUserThreads()
 		contactSelector = container.NewVBox(
 			widget.NewLabelWithStyle("User Support Queue:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			threadSelectDropdown,
 		)
+
+		loadUserThreads()
 	} else {
 		adminSelectDropdown := widget.NewSelect([]string{}, nil)
 		adminSelectDropdown.PlaceHolder = "[ Select System Administrator ]"
+
+		adminSelectDropdown.OnChanged = func(selected string) {
+			if selected != "" {
+				targetUser = selected
+				headerStatusLabel.SetText(fmt.Sprintf("💬 Support Channel with Admin: %s", targetUser))
+				refreshChatHistory(true)
+			}
+		}
 
 		admins, err := db.FetchAdminList()
 		if err == nil && len(admins) > 0 {
@@ -170,21 +225,13 @@ func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRo
 			adminSelectDropdown.SetSelected(admins[0])
 			targetUser = admins[0]
 			headerStatusLabel.SetText(fmt.Sprintf("💬 Support Channel with Admin: %s", targetUser))
-			refreshChatHistory()
+			refreshChatHistory(true)
 		} else {
 			adminSelectDropdown.Options = []string{"admin"}
 			adminSelectDropdown.SetSelected("admin")
 			targetUser = "admin"
 			headerStatusLabel.SetText("💬 Support Channel with Central Admin")
-			refreshChatHistory()
-		}
-
-		adminSelectDropdown.OnChanged = func(selected string) {
-			if selected != "" {
-				targetUser = selected
-				headerStatusLabel.SetText(fmt.Sprintf("💬 Support Channel with Admin: %s", targetUser))
-				refreshChatHistory()
-			}
+			refreshChatHistory(true)
 		}
 
 		contactSelector = container.NewVBox(
@@ -200,23 +247,31 @@ func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRo
 		widget.NewSeparator(),
 	)
 
-	chatMainView := container.NewBorder(topPanel, inputRow, nil, nil, chatScroll)
+	chatMainView := container.NewBorder(topPanel, container.NewPadded(inputRow), nil, nil, chatScroll)
 
 	chatDialog := dialog.NewCustom("💬 eGPF Enterprise Support Chat Portal", "Close Portal", chatMainView, window)
-	chatDialog.Resize(fyne.NewSize(680, 560))
+	chatDialog.Resize(fyne.NewSize(700, 560))
 
 	// 5. Real-time Background Polling Ticker
 	stopPolling := make(chan struct{})
+	var isClosed bool
+	var pollLock sync.Mutex
 
 	go func() {
-		ticker := time.NewTicker(3 * time.Second)
+		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
+				pollLock.Lock()
+				closed := isClosed
+				pollLock.Unlock()
+				if closed {
+					return
+				}
 				if targetUser != "" {
-					refreshChatHistory()
+					refreshChatHistory(false)
 				}
 			case <-stopPolling:
 				return
@@ -225,7 +280,14 @@ func ShowSupportChatPortal(window fyne.Window, currentUsername string, currentRo
 	}()
 
 	chatDialog.SetOnClosed(func() {
-		close(stopPolling)
+		pollLock.Lock()
+		isClosed = true
+		pollLock.Unlock()
+		select {
+		case <-stopPolling:
+		default:
+			close(stopPolling)
+		}
 	})
 
 	chatDialog.Show()

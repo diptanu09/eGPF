@@ -2,8 +2,9 @@ package db
 
 /*
 #include <stdlib.h>
+#include <stdbool.h>
 #cgo CFLAGS: -I../vmp_sdk/Include/C/
-#cgo LDFLAGS: -L../vmp_sdk/Lib/Windows -lVMProtectSDK64
+#cgo LDFLAGS: -L../vmp_sdk/Lib/Windows -L../vmp_sdk/Lib/Windows/MinGW -lVMProtectSDK64
 #include "VMProtectSDK.h"
 */
 import "C"
@@ -276,3 +277,28 @@ func ExecuteUpdateUserAvatar(operator, username, chosenAvatar string) error {
 	}
 	return err
 }
+
+// ==============================================================================
+// VMPROTECT RUNTIME SECURITY API INSPECTION HELPERS
+// ==============================================================================
+
+// IsVMProtected checks whether the binary has been processed by VMProtect
+func IsVMProtected() bool {
+	return bool(C.VMProtectIsProtected())
+}
+
+// IsDebuggerPresent queries the VMProtect engine to detect active debuggers
+func IsDebuggerPresent() bool {
+	return bool(C.VMProtectIsDebuggerPresent(C.bool(true)))
+}
+
+// IsValidImageCRC verifies the integrity of the binary against memory patching/tampering
+func IsValidImageCRC() bool {
+	return bool(C.VMProtectIsValidImageCRC())
+}
+
+// IsVirtualMachinePresent checks if application is running in a virtualized guest VM
+func IsVirtualMachinePresent() bool {
+	return bool(C.VMProtectIsVirtualMachinePresent())
+}
+

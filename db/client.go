@@ -55,6 +55,12 @@ func InitDatabase() (*sql.DB, error) {
 	}
 
 	log.Println("[SSL SUCCESS] Database connection established successfully over SSL (verify-full).")
+
+	// Ensure chat messaging schema and indexes are present
+	if chatErr := EnsureChatTableExists(); chatErr != nil {
+		log.Printf("Notice: Chat table initialization check: %v", chatErr)
+	}
+
 	return db, nil
 }
 

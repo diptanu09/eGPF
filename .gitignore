@@ -8,6 +8,8 @@
 # Go workspace
 bin/
 dist/
+eGPF_Release/
+eGPF_Debug/
 
 
 # IDE

@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"log"
 	"time"
 )
 
@@ -23,6 +24,32 @@ type UserChatSummary struct {
 	LastActive  time.Time `json:"last_active"`
 }
 
+// EnsureChatTableExists auto-creates the chat_messages table and performance indexes if missing
+func EnsureChatTableExists() error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+
+	createTableQuery := `
+		CREATE TABLE IF NOT EXISTS chat_messages (
+			id BIGSERIAL PRIMARY KEY,
+			sender_username VARCHAR(100) NOT NULL,
+			receiver_username VARCHAR(100) NOT NULL,
+			message_text TEXT NOT NULL,
+			is_read BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_chat_messages_users ON chat_messages(sender_username, receiver_username);
+		CREATE INDEX IF NOT EXISTS idx_chat_messages_receiver_read ON chat_messages(receiver_username, is_read);
+	`
+	_, err := db.Exec(createTableQuery)
+	if err != nil {
+		log.Printf("Warning: Failed to ensure chat_messages table: %v", err)
+		return err
+	}
+	return nil
+}
+
 // ExecuteSendMessage inserts a new chat message into the database
 func ExecuteSendMessage(sender, receiver, messageText string) error {
 	if db == nil {
@@ -34,7 +61,7 @@ func ExecuteSendMessage(sender, receiver, messageText string) error {
 	}
 
 	query := `
-		INSERT INTO agartala.chat_messages (sender_username, receiver_username, message_text, is_read, created_at)
+		INSERT INTO chat_messages (sender_username, receiver_username, message_text, is_read, created_at)
 		VALUES ($1, $2, $3, FALSE, NOW());
 	`
 	_, err := db.Exec(query, sender, receiver, messageText)
@@ -56,8 +83,8 @@ func FetchChatHistory(user1, user2 string, limit int) ([]ChatMessage, error) {
 	}
 
 	query := `
-		SELECT message_id, sender_username, receiver_username, message_text, is_read, created_at
-		FROM agartala.chat_messages
+		SELECT id, sender_username, receiver_username, message_text, is_read, created_at
+		FROM chat_messages
 		WHERE (sender_username = $1 AND receiver_username = $2)
 		   OR (sender_username = $2 AND receiver_username = $1)
 		ORDER BY created_at ASC
@@ -93,7 +120,7 @@ func MarkMessagesAsRead(reader, sender string) error {
 	}
 
 	query := `
-		UPDATE agartala.chat_messages
+		UPDATE chat_messages
 		SET is_read = TRUE
 		WHERE receiver_username = $1 AND sender_username = $2 AND is_read = FALSE;
 	`
@@ -109,7 +136,7 @@ func FetchAdminList() ([]string, error) {
 
 	query := `
 		SELECT username 
-		FROM agartala.users 
+		FROM users 
 		WHERE role = 'admin' AND status = 'approved' 
 		ORDER BY username ASC;
 	`
@@ -134,25 +161,30 @@ func FetchAdminList() ([]string, error) {
 	return admins, nil
 }
 
-// FetchActiveUserThreads retrieves a list of user conversations for Administrators
-func FetchActiveUserThreads() ([]UserChatSummary, error) {
+// FetchActiveUserThreads retrieves a list of user conversations for a specific Administrator
+func FetchActiveUserThreads(currentAdminUsername string) ([]UserChatSummary, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database handle uninitialized")
+	}
+
+	if currentAdminUsername == "" {
+		currentAdminUsername = "admin"
 	}
 
 	query := `
 		WITH LatestMessages AS (
 			SELECT 
-				CASE WHEN sender_username = 'admin' THEN receiver_username ELSE sender_username END AS user_handle,
+				CASE WHEN sender_username = $1 THEN receiver_username ELSE sender_username END AS user_handle,
 				message_text,
 				created_at,
 				is_read,
 				receiver_username,
 				ROW_NUMBER() OVER (
-					PARTITION BY CASE WHEN sender_username = 'admin' THEN receiver_username ELSE sender_username END 
+					PARTITION BY CASE WHEN sender_username = $1 THEN receiver_username ELSE sender_username END 
 					ORDER BY created_at DESC
 				) as rn
-			FROM agartala.chat_messages
+			FROM chat_messages
+			WHERE sender_username = $1 OR receiver_username = $1
 		)
 		SELECT 
 			u.username,
@@ -160,16 +192,16 @@ func FetchActiveUserThreads() ([]UserChatSummary, error) {
 			COALESCE(lm.created_at, NOW()) AS last_active,
 			(
 				SELECT COUNT(*) 
-				FROM agartala.chat_messages 
-				WHERE receiver_username = 'admin' AND sender_username = u.username AND is_read = FALSE
+				FROM chat_messages 
+				WHERE receiver_username = $1 AND sender_username = u.username AND is_read = FALSE
 			) AS unread_count
-		FROM agartala.users u
+		FROM users u
 		LEFT JOIN LatestMessages lm ON u.username = lm.user_handle AND lm.rn = 1
 		WHERE u.role != 'admin' AND u.status = 'approved'
-		ORDER BY last_active DESC;
+		ORDER BY unread_count DESC, last_active DESC;
 	`
 
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, currentAdminUsername)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +229,7 @@ func FetchTotalUnreadCount(username string) (int, error) {
 	}
 
 	var count int
-	query := `SELECT COUNT(*) FROM agartala.chat_messages WHERE receiver_username = $1 AND is_read = FALSE;`
+	query := `SELECT COUNT(*) FROM chat_messages WHERE receiver_username = $1 AND is_read = FALSE;`
 	err := db.QueryRow(query, username).Scan(&count)
 	return count, err
 }
