@@ -61,6 +61,11 @@ func InitDatabase() (*sql.DB, error) {
 		log.Printf("Notice: Chat table initialization check: %v", chatErr)
 	}
 
+	// Ensure service requests schema and indexes are present
+	if reqErr := EnsureServiceRequestsTableExists(); reqErr != nil {
+		log.Printf("Notice: Service requests table initialization check: %v", reqErr)
+	}
+
 	return db, nil
 }
 
@@ -90,7 +95,7 @@ func FetchLatestAppVersion() (string, string, error) {
 	var latestVersion, downloadPath string
 	err := db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'latest_version';").Scan(&latestVersion)
 	if err != nil {
-		return "2.3.6", "", nil
+		return "2.3.7", "", nil
 	}
 	err = db.QueryRow("SELECT config_value FROM system_config WHERE config_key = 'download_path';").Scan(&downloadPath)
 	if err != nil {
@@ -143,7 +148,7 @@ func getEnvAsInt(key string, fallback int) int {
 
 // FetchReleaseNotes retrieves the release summary description for the latest version update
 func FetchReleaseNotes() string {
-	const defaultNotes = "• Live Enterprise Support Chat Portal with User-Admin Messaging\n• Real-Time Unread Message Badge Indicator\n• Advanced VMProtect Security & Code Virtualization\n• Core Architecture & Connection Resiliency Improvements"
+	const defaultNotes = "• User Service Requests Framework (PIN reset, profile updates, new subscriber/DDO)\n• Administrator Live Service Requests Review & Approval Queue Console\n• Live Request Notification Badges & Real-Time Background Synchronization\n• Live Enterprise Support Chat Portal with User-Admin Messaging\n• Advanced VMProtect Security, Code Virtualization & Anti-Tamper Layers"
 	if db == nil {
 		return defaultNotes
 	}

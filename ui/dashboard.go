@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	CurrentClientVersion   = "2.3.6"
+	CurrentClientVersion   = "2.3.7"
 	CopyrightInfo          = "© 2026 O/o the Accountant General (A&E), Tripura. \nAll Rights Reserved."
 	SessionInactivityLimit = 5 * time.Minute
 )
@@ -415,9 +415,16 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		d.Show()
 	}
 
-	actionMenuButton := widget.NewSelect([]string{"[Choose Row Operation]", "View DDO Info", "Assign/Reset PIN", "Update Profile Data", "Delete Record Space"}, func(chosen string) {
+	actionMenuButton := widget.NewSelect([]string{
+		"[Choose Row Operation]",
+		"View DDO Info",
+		"Assign/Reset PIN",
+		"Update Profile Data",
+		"Raise Change Request",
+		"Delete Record Space",
+	}, func(chosen string) {
 		resetInactivityTimer()
-		if selectedRowIndex == -1 && chosen != "Assign/Reset PIN" {
+		if selectedRowIndex == -1 && chosen != "Assign/Reset PIN" && chosen != "Raise Change Request" {
 			dialog.ShowInformation("Selection Required", "Please click a row in the registry grid below before choosing an action item option.", window)
 			return
 		}
@@ -432,14 +439,62 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			if canAssignSubscriberPin {
 				executeAssignPin()
 			} else {
-				dialog.ShowError(fmt.Errorf("Security Exception: Access Denied"), window)
+				dialog.ShowConfirm("Permission Required", "Direct PIN modification requires administrative write permissions.\nWould you like to submit a PIN Change Request to the Administrator?", func(confirmed bool) {
+					if confirmed {
+						prefillData := make(map[string]string)
+						if selectedRowIndex != -1 {
+							rawSeriesStr := gridData[selectedRowIndex][0]
+							var selSerID string
+							fmt.Sscanf(rawSeriesStr, "%s", &selSerID)
+							prefillData["series"] = selSerID
+							prefillData["account_no"] = gridData[selectedRowIndex][1]
+							prefillData["name"] = gridData[selectedRowIndex][2]
+						}
+						ShowRaiseServiceRequestModal(window, username, role, "🔑 Request PIN Creation / Reset", prefillData)
+					}
+				}, window)
 			}
 		case "Update Profile Data":
 			if canWrite {
 				executeUpdateRow()
 			} else {
-				dialog.ShowError(fmt.Errorf("Security Exception: Access Denied"), window)
+				dialog.ShowConfirm("Permission Required", "Direct record modification requires administrative write permissions.\nWould you like to submit an Information Update Request to the Administrator?", func(confirmed bool) {
+					if confirmed {
+						prefillData := make(map[string]string)
+						if selectedRowIndex != -1 {
+							rawSeriesStr := gridData[selectedRowIndex][0]
+							var selSerID string
+							fmt.Sscanf(rawSeriesStr, "%s", &selSerID)
+							prefillData["series"] = selSerID
+							prefillData["account_no"] = gridData[selectedRowIndex][1]
+							prefillData["name"] = gridData[selectedRowIndex][2]
+							prefillData["designation"] = gridData[selectedRowIndex][5]
+							prefillData["mobile"] = gridData[selectedRowIndex][6]
+							prefillData["ddo_code"] = gridData[selectedRowIndex][8]
+							prefillData["pin"] = gridData[selectedRowIndex][9]
+						}
+						ShowRaiseServiceRequestModal(window, username, role, "✏️ Request Subscriber Data Update", prefillData)
+					}
+				}, window)
 			}
+		case "Raise Change Request":
+			prefillData := make(map[string]string)
+			reqType := "🔑 Request PIN Creation / Reset"
+			if selectedRowIndex != -1 {
+				rawSeriesStr := gridData[selectedRowIndex][0]
+				var selSerID string
+				fmt.Sscanf(rawSeriesStr, "%s", &selSerID)
+				prefillData["series"] = selSerID
+				prefillData["account_no"] = gridData[selectedRowIndex][1]
+				prefillData["name"] = gridData[selectedRowIndex][2]
+				prefillData["designation"] = gridData[selectedRowIndex][5]
+				prefillData["mobile"] = gridData[selectedRowIndex][6]
+				prefillData["ddo_code"] = gridData[selectedRowIndex][8]
+				prefillData["pin"] = gridData[selectedRowIndex][9]
+				reqType = "✏️ Request Subscriber Data Update"
+			}
+			ShowRaiseServiceRequestModal(window, username, role, reqType, prefillData)
+
 		case "Delete Record Space":
 			if canDelete {
 				executeDeleteRow()
@@ -453,7 +508,10 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 
 	systemToolsMenu := widget.NewSelect([]string{
 		"[System Tools Portal Menu]",
-		"Support Chat Portal", // Extended for Support Communication
+		"Support Chat Portal",
+		"Raise Service Request",
+		"My Raised Requests",
+		"User Service Requests Queue",
 		"DDO Master Directory Registry",
 		"Add New Fund Series Category",
 		"Manage Local User Profiles",
@@ -462,13 +520,22 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		"App Distribution Version Setup",
 	}, func(tool string) {
 		resetInactivityTimer()
-		if role != "admin" && tool != "DDO Master Directory Registry" && tool != "Support Chat Portal" {
+		if role != "admin" && tool != "DDO Master Directory Registry" && tool != "Support Chat Portal" && tool != "Raise Service Request" && tool != "My Raised Requests" {
 			dialog.ShowError(fmt.Errorf("Security Constraint: Administrative levels required."), window)
 			return
 		}
 		switch tool {
 		case "Support Chat Portal":
 			ShowSupportChatPortal(window, username, role)
+
+		case "Raise Service Request":
+			ShowRaiseServiceRequestModal(window, username, role, "", nil)
+
+		case "My Raised Requests":
+			ShowMyRequestsPortal(window, username)
+
+		case "User Service Requests Queue":
+			ShowAdminServiceRequestsPortal(window, username)
 
 		case "DDO Master Directory Registry":
 			if !canViewDdoData {
@@ -595,10 +662,24 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				d.Show()
 			})
 
+			requestDdoBtn := widget.NewButtonWithIcon("Raise DDO Request", theme.DocumentCreateIcon(), func() {
+				resetInactivityTimer()
+				prefillData := make(map[string]string)
+				reqType := "🏛️ Request New DDO Registration"
+				if selectedDdoRowIndex != -1 {
+					prefillData["ddo_code"] = ddoGridData[selectedDdoRowIndex][0]
+					prefillData["designation"] = ddoGridData[selectedDdoRowIndex][1]
+					prefillData["phone"] = ddoGridData[selectedDdoRowIndex][2]
+					prefillData["email"] = ddoGridData[selectedDdoRowIndex][3]
+					reqType = "📋 Request DDO Profile Update"
+				}
+				ShowRaiseServiceRequestModal(window, username, role, reqType, prefillData)
+			})
+
 			syncDdoGrid("")
 
 			topPanel := container.NewVBox(ddoSearchBox)
-			bottomPanel := container.NewHBox(managePinBtn)
+			bottomPanel := container.NewHBox(managePinBtn, requestDdoBtn)
 			tableSizer := container.NewPadded(ddoTable)
 			mainBorderLayout := container.NewBorder(topPanel, bottomPanel, nil, nil, tableSizer)
 
@@ -982,6 +1063,27 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		ShowSupportChatPortal(window, username, role)
 	})
 
+	var serviceRequestsHeaderButton *widget.Button
+	if role == "admin" {
+		serviceRequestsHeaderButton = widget.NewButtonWithIcon("📥 Requests (0)", theme.ContentPasteIcon(), func() {
+			resetInactivityTimer()
+			ShowAdminServiceRequestsPortal(window, username)
+		})
+	} else {
+		serviceRequestsHeaderButton = widget.NewButtonWithIcon("📝 Raise Request", theme.DocumentCreateIcon(), func() {
+			resetInactivityTimer()
+			ShowRaiseServiceRequestModal(window, username, role, "", nil)
+		})
+	}
+
+	var myRequestsHeaderButton *widget.Button
+	if role != "admin" {
+		myRequestsHeaderButton = widget.NewButtonWithIcon("📋 My Requests", theme.ListIcon(), func() {
+			resetInactivityTimer()
+			ShowMyRequestsPortal(window, username)
+		})
+	}
+
 	go func() {
 		ticker := time.NewTicker(4 * time.Second)
 		defer ticker.Stop()
@@ -995,6 +1097,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				return
 			}
 
+			// 1. Update Chat Unread Count
 			count, err := db.FetchTotalUnreadCount(username)
 			if err == nil {
 				if count > 0 {
@@ -1005,6 +1108,27 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 					unreadBadgeButton.Importance = widget.MediumImportance
 				}
 				unreadBadgeButton.Refresh()
+			}
+
+			// 2. Update Service Requests Badge Counts
+			if role == "admin" && serviceRequestsHeaderButton != nil {
+				reqCount := db.FetchPendingServiceRequestCount()
+				if reqCount > 0 {
+					serviceRequestsHeaderButton.SetText(fmt.Sprintf("🔴 Requests (%d Pending)", reqCount))
+					serviceRequestsHeaderButton.Importance = widget.HighImportance
+				} else {
+					serviceRequestsHeaderButton.SetText("📥 Requests (0)")
+					serviceRequestsHeaderButton.Importance = widget.MediumImportance
+				}
+				serviceRequestsHeaderButton.Refresh()
+			} else if myRequestsHeaderButton != nil {
+				userReqCount := db.FetchUserPendingServiceRequestCount(username)
+				if userReqCount > 0 {
+					myRequestsHeaderButton.SetText(fmt.Sprintf("📋 My Requests (%d)", userReqCount))
+				} else {
+					myRequestsHeaderButton.SetText("📋 My Requests")
+				}
+				myRequestsHeaderButton.Refresh()
 			}
 
 			<-ticker.C
@@ -1026,10 +1150,11 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			widget.NewLabel(releaseNotes),
 			widget.NewSeparator(),
 			widget.NewLabelWithStyle("Key Highlights & New Features:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			widget.NewLabel("💬 1. Support Chat Portal (Instant User <-> Admin real-time communication)"),
-			widget.NewLabel("🔴 2. Live Unread Chat Badge Indicator on Dashboard Navigation Header"),
-			widget.NewLabel("🔒 3. Advanced VMProtect Security & Code Virtualization Layer"),
-			widget.NewLabel("⚡ 4. Database Connection Resiliency & Performance Optimizations"),
+			widget.NewLabel("📥 1. User Service Requests & Admin Approval Queue Console"),
+			widget.NewLabel("🔑 2. Self-Service PIN Reset, Data Update & Profile Creation Requests"),
+			widget.NewLabel("🏛️ 3. DDO Master Registration & Profile Update Workflows"),
+			widget.NewLabel("💬 4. Support Chat Portal with Real-Time Communication"),
+			widget.NewLabel("🔴 5. Live Request & Chat Notification Badges on Navigation Header"),
 			widget.NewSeparator(),
 			widget.NewLabelWithStyle("Thank you for using the eGPF Enterprise Gateway.", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 		)
@@ -1040,7 +1165,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			whatsNewContent,
 			window,
 		)
-		whatsNewDialog.Resize(fyne.NewSize(520, 380))
+		whatsNewDialog.Resize(fyne.NewSize(540, 420))
 
 		// Persist that the user has acknowledged this version update
 		app.Preferences().SetString("last_seen_version", CurrentClientVersion)
@@ -1050,13 +1175,20 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		whatsNewDialog.Show()
 	}
 
+	headerButtons := container.NewHBox()
+	if myRequestsHeaderButton != nil {
+		headerButtons.Add(container.NewPadded(myRequestsHeaderButton))
+	}
+	if serviceRequestsHeaderButton != nil {
+		headerButtons.Add(container.NewPadded(serviceRequestsHeaderButton))
+	}
+	headerButtons.Add(container.NewPadded(unreadBadgeButton))
+	headerButtons.Add(container.NewPadded(dashLogo))
+	headerButtons.Add(logoutButton)
+
 	headerLayout := container.NewBorder(
 		nil, nil, nil,
-		container.NewHBox(
-			container.NewPadded(unreadBadgeButton),
-			container.NewPadded(dashLogo),
-			logoutButton,
-		),
+		headerButtons,
 		profileCard,
 	)
 
