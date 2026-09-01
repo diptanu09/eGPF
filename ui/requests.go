@@ -27,6 +27,8 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 		"✏️ Request Subscriber Data Update",
 		"🏛️ Request New DDO Registration",
 		"📋 Request DDO Profile Update",
+		"🏦 Request New Treasury Registration",
+		"📑 Request Treasury Profile Update",
 	}, nil)
 
 	formContainer := container.NewVBox()
@@ -70,6 +72,13 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 	ddoVlcCodeEntry := widget.NewEntry()
 	ddoVlcCodeEntry.SetPlaceHolder("VLC DDO Code")
 
+	// Form inputs for Treasury operations
+	tresNameEntry := widget.NewEntry()
+	tresNameEntry.SetPlaceHolder("Treasury Full Name")
+
+	tresVlcCodeEntry := widget.NewEntry()
+	tresVlcCodeEntry.SetPlaceHolder("VLC Treasury Code")
+
 	reasonEntry := widget.NewMultiLineEntry()
 	reasonEntry.SetPlaceHolder("Reason or justification for this change request...")
 	reasonEntry.SetMinRowsVisible(2)
@@ -81,101 +90,133 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 
 		switch chosenType {
 		case "🔑 Request PIN Creation / Reset":
-			targetChoice := widget.NewRadioGroup([]string{"Subscriber Account", "DDO Login"}, nil)
+			targetChoice := widget.NewRadioGroup([]string{"Subscriber Account", "DDO Login", "Treasury Login"}, nil)
 			targetChoice.Horizontal = true
 			targetChoice.SetSelected("Subscriber Account")
 
-			subBox := container.NewVBox(
-				widget.NewLabelWithStyle("Subscriber Details:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				container.NewBorder(nil, nil, widget.NewLabel("Series:       "), nil, seriesDropdown),
-				container.NewBorder(nil, nil, widget.NewLabel("Account No:"), nil, accountNoEntry),
+			subForm := widget.NewForm(
+				widget.NewFormItem("Series", seriesDropdown),
+				widget.NewFormItem("Account No", accountNoEntry),
 			)
 
-			ddoBox := container.NewVBox(
-				widget.NewLabelWithStyle("DDO Target:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				container.NewBorder(nil, nil, widget.NewLabel("DDO Code:  "), nil, ddoCodeEntry),
+			ddoForm := widget.NewForm(
+				widget.NewFormItem("DDO Code", ddoCodeEntry),
 			)
-			ddoBox.Hide()
+			ddoForm.Hide()
+
+			tresForm := widget.NewForm(
+				widget.NewFormItem("Treasury Code", ddoTresCodeEntry),
+			)
+			tresForm.Hide()
 
 			targetChoice.OnChanged = func(sel string) {
-				if sel == "Subscriber Account" {
-					subBox.Show()
-					ddoBox.Hide()
-				} else {
-					subBox.Hide()
-					ddoBox.Show()
+				subForm.Hide()
+				ddoForm.Hide()
+				tresForm.Hide()
+				switch sel {
+				case "Subscriber Account":
+					subForm.Show()
+				case "DDO Login":
+					ddoForm.Show()
+				case "Treasury Login":
+					tresForm.Show()
 				}
 			}
 
-			pinRow := container.NewBorder(nil, nil, widget.NewLabel("New PIN:     "), autoPinBtn, pinEntry)
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			commonForm := widget.NewForm(
+				widget.NewFormItem("New PIN", pinRow),
+				widget.NewFormItem("Justification", reasonEntry),
+			)
 
 			formContainer.Add(container.NewVBox(
-				widget.NewLabel("Target Type:"),
+				widget.NewLabelWithStyle("Target Type:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 				targetChoice,
 				widget.NewSeparator(),
-				subBox,
-				ddoBox,
+				subForm,
+				ddoForm,
+				tresForm,
 				widget.NewSeparator(),
-				pinRow,
-				widget.NewLabel("Justification / Remarks:"),
-				reasonEntry,
+				commonForm,
 			))
 
 		case "👤 Request New Subscriber Profile":
-			pinRow := container.NewBorder(nil, nil, widget.NewLabel("Initial PIN:  "), autoPinBtn, pinEntry)
-			formContainer.Add(container.NewVBox(
-				container.NewBorder(nil, nil, widget.NewLabel("Series:       "), nil, seriesDropdown),
-				container.NewBorder(nil, nil, widget.NewLabel("Account No:"), nil, accountNoEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Full Name:  "), nil, subscriberNameEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Designation:"), nil, designationEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Mobile No:  "), nil, mobileEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("DDO Code:   "), nil, ddoCodeEntry),
-				pinRow,
-				widget.NewLabel("Justification / Remarks:"),
-				reasonEntry,
-			))
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			form := widget.NewForm(
+				widget.NewFormItem("Series", seriesDropdown),
+				widget.NewFormItem("Account No", accountNoEntry),
+				widget.NewFormItem("Full Name", subscriberNameEntry),
+				widget.NewFormItem("Designation", designationEntry),
+				widget.NewFormItem("Mobile No", mobileEntry),
+				widget.NewFormItem("DDO Code", ddoCodeEntry),
+				widget.NewFormItem("Initial PIN", pinRow),
+				widget.NewFormItem("Justification", reasonEntry),
+			)
+			formContainer.Add(form)
 
 		case "✏️ Request Subscriber Data Update":
-			pinRow := container.NewBorder(nil, nil, widget.NewLabel("PIN (Optional):"), autoPinBtn, pinEntry)
-			formContainer.Add(container.NewVBox(
-				container.NewBorder(nil, nil, widget.NewLabel("Series:       "), nil, seriesDropdown),
-				container.NewBorder(nil, nil, widget.NewLabel("Account No:"), nil, accountNoEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Full Name:  "), nil, subscriberNameEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Designation:"), nil, designationEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Mobile No:  "), nil, mobileEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("DDO Code:   "), nil, ddoCodeEntry),
-				pinRow,
-				widget.NewLabel("Reason for Modification:"),
-				reasonEntry,
-			))
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			form := widget.NewForm(
+				widget.NewFormItem("Series", seriesDropdown),
+				widget.NewFormItem("Account No", accountNoEntry),
+				widget.NewFormItem("Full Name", subscriberNameEntry),
+				widget.NewFormItem("Designation", designationEntry),
+				widget.NewFormItem("Mobile No", mobileEntry),
+				widget.NewFormItem("DDO Code", ddoCodeEntry),
+				widget.NewFormItem("PIN (Optional)", pinRow),
+				widget.NewFormItem("Reason / Notes", reasonEntry),
+			)
+			formContainer.Add(form)
 
 		case "🏛️ Request New DDO Registration":
-			pinRow := container.NewBorder(nil, nil, widget.NewLabel("Gate PIN:     "), autoPinBtn, pinEntry)
-			formContainer.Add(container.NewVBox(
-				container.NewBorder(nil, nil, widget.NewLabel("DDO Code:   "), nil, ddoCodeEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Designation:"), nil, designationEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Phone No:   "), nil, ddoPhoneEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Email Addr: "), nil, ddoEmailEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Treasury Cd:"), nil, ddoTresCodeEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("VLC Code:   "), nil, ddoVlcCodeEntry),
-				pinRow,
-				widget.NewLabel("Justification / Remarks:"),
-				reasonEntry,
-			))
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			form := widget.NewForm(
+				widget.NewFormItem("DDO Code", ddoCodeEntry),
+				widget.NewFormItem("Designation", designationEntry),
+				widget.NewFormItem("Phone No", ddoPhoneEntry),
+				widget.NewFormItem("Email Address", ddoEmailEntry),
+				widget.NewFormItem("Treasury Code", ddoTresCodeEntry),
+				widget.NewFormItem("VLC Code", ddoVlcCodeEntry),
+				widget.NewFormItem("Gate PIN", pinRow),
+				widget.NewFormItem("Justification", reasonEntry),
+			)
+			formContainer.Add(form)
 
 		case "📋 Request DDO Profile Update":
-			pinRow := container.NewBorder(nil, nil, widget.NewLabel("Gate PIN:     "), autoPinBtn, pinEntry)
-			formContainer.Add(container.NewVBox(
-				container.NewBorder(nil, nil, widget.NewLabel("DDO Code:   "), nil, ddoCodeEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Designation:"), nil, designationEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Phone No:   "), nil, ddoPhoneEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Email Addr: "), nil, ddoEmailEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("Treasury Cd:"), nil, ddoTresCodeEntry),
-				container.NewBorder(nil, nil, widget.NewLabel("VLC Code:   "), nil, ddoVlcCodeEntry),
-				pinRow,
-				widget.NewLabel("Reason for Modification:"),
-				reasonEntry,
-			))
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			form := widget.NewForm(
+				widget.NewFormItem("DDO Code", ddoCodeEntry),
+				widget.NewFormItem("Designation", designationEntry),
+				widget.NewFormItem("Phone No", ddoPhoneEntry),
+				widget.NewFormItem("Email Address", ddoEmailEntry),
+				widget.NewFormItem("Treasury Code", ddoTresCodeEntry),
+				widget.NewFormItem("VLC Code", ddoVlcCodeEntry),
+				widget.NewFormItem("Gate PIN", pinRow),
+				widget.NewFormItem("Reason / Notes", reasonEntry),
+			)
+			formContainer.Add(form)
+
+		case "🏦 Request New Treasury Registration":
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			form := widget.NewForm(
+				widget.NewFormItem("Treasury Code", ddoTresCodeEntry),
+				widget.NewFormItem("Treasury Name", tresNameEntry),
+				widget.NewFormItem("VLC Treasury Code", tresVlcCodeEntry),
+				widget.NewFormItem("Gate PIN", pinRow),
+				widget.NewFormItem("Justification", reasonEntry),
+			)
+			formContainer.Add(form)
+
+		case "📑 Request Treasury Profile Update":
+			pinRow := container.NewBorder(nil, nil, nil, autoPinBtn, pinEntry)
+			form := widget.NewForm(
+				widget.NewFormItem("Treasury Code", ddoTresCodeEntry),
+				widget.NewFormItem("Treasury Name", tresNameEntry),
+				widget.NewFormItem("VLC Treasury Code", tresVlcCodeEntry),
+				widget.NewFormItem("Gate PIN", pinRow),
+				widget.NewFormItem("Reason / Notes", reasonEntry),
+			)
+			formContainer.Add(form)
 		}
 		formContainer.Refresh()
 	}
@@ -216,6 +257,15 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 		if em, ok := prefillData["email"]; ok && em != "N/A" {
 			ddoEmailEntry.SetText(em)
 		}
+		if tc, ok := prefillData["treasury_code"]; ok && tc != "N/A" {
+			ddoTresCodeEntry.SetText(tc)
+		}
+		if tn, ok := prefillData["treasury_name"]; ok && tn != "N/A" {
+			tresNameEntry.SetText(tn)
+		}
+		if vc, ok := prefillData["vlc_code"]; ok && vc != "N/A" {
+			tresVlcCodeEntry.SetText(vc)
+		}
 	}
 
 	if prefillType != "" {
@@ -255,8 +305,11 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 			} else if ddoCodeEntry.Text != "" {
 				payload.DDOCode = strings.TrimSpace(ddoCodeEntry.Text)
 				targetEntity = fmt.Sprintf("DDO Login [Code: %s]", payload.DDOCode)
+			} else if ddoTresCodeEntry.Text != "" {
+				payload.TreasuryCode = strings.TrimSpace(ddoTresCodeEntry.Text)
+				targetEntity = fmt.Sprintf("Treasury Login [Code: %s]", payload.TreasuryCode)
 			} else {
-				dialog.ShowError(fmt.Errorf("Please specify Series & Account No OR DDO Code"), window)
+				dialog.ShowError(fmt.Errorf("Please specify Series & Account No, DDO Code, OR Treasury Code"), window)
 				return
 			}
 
@@ -319,6 +372,30 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 			payload.VLCCode = strings.TrimSpace(ddoVlcCodeEntry.Text)
 			payload.PIN = strings.TrimSpace(pinEntry.Text)
 			targetEntity = fmt.Sprintf("DDO Update [%s]", payload.DDOCode)
+
+		case "🏦 Request New Treasury Registration":
+			reqType = "CREATE_TREASURY"
+			if strings.TrimSpace(ddoTresCodeEntry.Text) == "" {
+				dialog.ShowError(fmt.Errorf("Treasury Code is required"), window)
+				return
+			}
+			payload.TreasuryCode = strings.TrimSpace(ddoTresCodeEntry.Text)
+			payload.TreasuryName = strings.TrimSpace(tresNameEntry.Text)
+			payload.VLCCode = strings.TrimSpace(tresVlcCodeEntry.Text)
+			payload.PIN = strings.TrimSpace(pinEntry.Text)
+			targetEntity = fmt.Sprintf("New Treasury Master [%s]", payload.TreasuryCode)
+
+		case "📑 Request Treasury Profile Update":
+			reqType = "UPDATE_TREASURY"
+			if strings.TrimSpace(ddoTresCodeEntry.Text) == "" {
+				dialog.ShowError(fmt.Errorf("Treasury Code is required"), window)
+				return
+			}
+			payload.TreasuryCode = strings.TrimSpace(ddoTresCodeEntry.Text)
+			payload.TreasuryName = strings.TrimSpace(tresNameEntry.Text)
+			payload.VLCCode = strings.TrimSpace(tresVlcCodeEntry.Text)
+			payload.PIN = strings.TrimSpace(pinEntry.Text)
+			targetEntity = fmt.Sprintf("Treasury Update [%s]", payload.TreasuryCode)
 		}
 
 		err := db.ExecuteSubmitServiceRequest(username, reqType, targetEntity, payload)
@@ -334,20 +411,31 @@ func ShowRaiseServiceRequestModal(window fyne.Window, username, role string, pre
 	})
 	submitBtn.Importance = widget.HighImportance
 
-	mainLayout := container.NewVBox(
+	topHeader := container.NewVBox(
 		widget.NewLabelWithStyle("📝 Submit Service Change Request", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
 		widget.NewLabel("Select the type of change you wish to request from System Administrators:"),
 		requestTypeSelect,
 		widget.NewSeparator(),
-		container.NewScroll(formContainer),
+	)
+
+	bottomBar := container.NewVBox(
 		widget.NewSeparator(),
 		submitBtn,
 	)
 
-	scroll := container.NewScroll(mainLayout)
-	scroll.SetMinSize(fyne.NewSize(580, 480))
+	scroll := container.NewScroll(container.NewPadded(formContainer))
+	scroll.SetMinSize(fyne.NewSize(580, 360))
 
-	currentModal = dialog.NewCustom("eGPF Service Request Portal", "Cancel", scroll, window)
+	mainLayout := container.NewBorder(
+		topHeader,
+		bottomBar,
+		nil,
+		nil,
+		scroll,
+	)
+
+	currentModal = dialog.NewCustom("eGPF Service Request Portal", "Cancel", mainLayout, window)
+	currentModal.Resize(fyne.NewSize(620, 560))
 	currentModal.Show()
 }
 
@@ -374,9 +462,10 @@ func ShowMyRequestsPortal(window fyne.Window, username string) {
 		for _, req := range requests {
 			r := req
 			statusColor := "🟡"
-			if r.Status == "APPROVED" {
+			switch r.Status {
+			case "APPROVED":
 				statusColor = "🟢"
-			} else if r.Status == "REJECTED" {
+			case "REJECTED":
 				statusColor = "🔴"
 			}
 
@@ -450,9 +539,10 @@ func ShowAdminServiceRequestsPortal(window fyne.Window, adminUsername string) {
 		for _, req := range requests {
 			r := req
 			statusColor := "🟡"
-			if r.Status == "APPROVED" {
+			switch r.Status {
+			case "APPROVED":
 				statusColor = "🟢"
-			} else if r.Status == "REJECTED" {
+			case "REJECTED":
 				statusColor = "🔴"
 			}
 
@@ -489,6 +579,9 @@ func ShowAdminServiceRequestsPortal(window fyne.Window, adminUsername string) {
 			}
 			if payload.TreasuryCode != "" {
 				payloadDetailsText = append(payloadDetailsText, fmt.Sprintf("Treasury Code: %s", payload.TreasuryCode))
+			}
+			if payload.TreasuryName != "" {
+				payloadDetailsText = append(payloadDetailsText, fmt.Sprintf("Treasury Name: %s", payload.TreasuryName))
 			}
 			if payload.VLCCode != "" {
 				payloadDetailsText = append(payloadDetailsText, fmt.Sprintf("VLC Code: %s", payload.VLCCode))

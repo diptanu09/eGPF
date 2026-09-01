@@ -434,3 +434,197 @@ func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin s
 
 	return tx.Commit()
 }
+
+// EnsureTreasuryTablesExist ensures MM_TREASURY and TREASURY_LOGIN tables exist
+func EnsureTreasuryTablesExist() error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+	schemaQuery := `
+		CREATE TABLE IF NOT EXISTS agartala.mm_treasury (
+			tres_code VARCHAR(50) PRIMARY KEY,
+			tres_name VARCHAR(200),
+			vlc_tres_code VARCHAR(50)
+		);
+		CREATE TABLE IF NOT EXISTS agartala.treasury_login (
+			tres_code VARCHAR(50) PRIMARY KEY,
+			pin VARCHAR(50)
+		);
+	`
+	_, err := db.Exec(schemaQuery)
+	return err
+}
+
+// FetchAllTreasuryProfiles fetches all Treasury records with PIN from MM_TREASURY and TREASURY_LOGIN
+func FetchAllTreasuryProfiles(filterCode string) ([][]string, error) {
+	directoryRows := [][]string{}
+	if db == nil {
+		return directoryRows, fmt.Errorf("database session handle context uninitialized")
+	}
+
+	_ = EnsureTreasuryTablesExist()
+
+	baseQuery := `
+		SELECT 
+			COALESCE(t.tres_code, ''), 
+			COALESCE(t.tres_name, 'N/A'), 
+			COALESCE(t.vlc_tres_code, 'N/A'), 
+			COALESCE(l.pin, 'N/A') AS security_pin
+		FROM agartala.mm_treasury t
+		LEFT JOIN agartala.treasury_login l ON t.tres_code = l.tres_code`
+
+	var rows *sql.Rows
+	var err error
+
+	if filterCode != "" {
+		queryStr := baseQuery + " WHERE t.tres_code ILIKE $1 OR t.tres_name ILIKE $1 ORDER BY t.tres_code ASC LIMIT 100;"
+		rows, err = db.Query(queryStr, "%"+filterCode+"%")
+	} else {
+		queryStr := baseQuery + " ORDER BY t.tres_code ASC LIMIT 100;"
+		rows, err = db.Query(queryStr)
+	}
+
+	if err != nil {
+		return directoryRows, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var code, name, vlc, pin string
+		if err := rows.Scan(&code, &name, &vlc, &pin); err == nil {
+			directoryRows = append(directoryRows, []string{code, name, vlc, pin})
+		}
+	}
+	return directoryRows, nil
+}
+
+// FetchTreasuryDetails queries single treasury configuration
+func FetchTreasuryDetails(tresCode string) (map[string]string, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database handle uninitialized")
+	}
+
+	_ = EnsureTreasuryTablesExist()
+
+	queryStr := `
+		SELECT 
+			COALESCE(t.tres_code, ''), 
+			COALESCE(t.tres_name, 'N/A'), 
+			COALESCE(t.vlc_tres_code, 'N/A'),
+			COALESCE(l.pin, 'N/A') AS security_pin
+		FROM agartala.mm_treasury t
+		LEFT JOIN agartala.treasury_login l ON t.tres_code = l.tres_code
+		WHERE t.tres_code = $1;`
+
+	var code, name, vlcCode, pin string
+	err := db.QueryRow(queryStr, tresCode).Scan(&code, &name, &vlcCode, &pin)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no Treasury master configuration found matching code: %s", tresCode)
+		}
+		return nil, err
+	}
+
+	result := map[string]string{
+		"tres_code":     code,
+		"tres_name":     name,
+		"vlc_tres_code": vlcCode,
+		"pin":           pin,
+	}
+	return result, nil
+}
+
+// ExecuteUpdateTreasuryProfile updates existing Treasury record and its PIN
+func ExecuteUpdateTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin string) error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+
+	_ = EnsureTreasuryTablesExist()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		UPDATE agartala.mm_treasury 
+		SET tres_name = $1, vlc_tres_code = $2 
+		WHERE tres_code = $3;`,
+		tresName, vlcTresCode, tresCode,
+	)
+	if err != nil {
+		return fmt.Errorf("treasury master update failure: %w", err)
+	}
+
+	if pin != "" {
+		var exists bool
+		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.treasury_login WHERE tres_code = $1);", tresCode).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if exists {
+			_, err = tx.Exec("UPDATE agartala.treasury_login SET pin = $1 WHERE tres_code = $2;", pin, tresCode)
+		} else {
+			_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", tresCode, pin)
+		}
+		if err != nil {
+			return fmt.Errorf("treasury gate access PIN update failure: %w", err)
+		}
+	}
+
+	details := fmt.Sprintf("Updated Treasury profile for %s: Name=[%s], VLC=[%s], PIN Context Updated", tresCode, tresName, vlcTresCode)
+	if auditErr := ExecuteInsertAuditLog(operator, "UPDATE_TREASURY_PROFILE_DATA", details); auditErr != nil {
+		return fmt.Errorf("audit logging failure: %w", auditErr)
+	}
+
+	return tx.Commit()
+}
+
+// ExecuteInsertTreasuryProfile inserts new Treasury profile and PIN
+func ExecuteInsertTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin string) error {
+	if db == nil {
+		return fmt.Errorf("database handle uninitialized")
+	}
+
+	_ = EnsureTreasuryTablesExist()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.mm_treasury WHERE tres_code = $1);", tresCode).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return fmt.Errorf("treasury with code %s already exists in the registry", tresCode)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO agartala.mm_treasury (tres_code, tres_name, vlc_tres_code)
+		VALUES ($1, $2, $3);`,
+		tresCode, tresName, vlcTresCode,
+	)
+	if err != nil {
+		return fmt.Errorf("treasury master creation failure: %w", err)
+	}
+
+	if pin != "" {
+		_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", tresCode, pin)
+		if err != nil {
+			return fmt.Errorf("treasury login PIN creation failure: %w", err)
+		}
+	}
+
+	details := fmt.Sprintf("Created new Treasury master record for %s (%s)", tresCode, tresName)
+	if auditErr := ExecuteInsertAuditLog(operator, "CREATE_TREASURY_PROFILE_DATA", details); auditErr != nil {
+		return fmt.Errorf("audit logging failure: %w", auditErr)
+	}
+
+	return tx.Commit()
+}

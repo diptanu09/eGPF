@@ -37,6 +37,7 @@ type RequestPayloadDetails struct {
 	PhoneNo        string `json:"phone_no,omitempty"`
 	Email          string `json:"email,omitempty"`
 	TreasuryCode   string `json:"treasury_code,omitempty"`
+	TreasuryName   string `json:"treasury_name,omitempty"`
 	VLCCode        string `json:"vlc_code,omitempty"`
 	ReasonRemarks  string `json:"reason_remarks,omitempty"`
 }
@@ -241,6 +242,17 @@ func ExecuteApproveServiceRequest(reviewerUsername string, requestID int64, rema
 			if err != nil {
 				return fmt.Errorf("failed to update DDO PIN: %w", err)
 			}
+		} else if payload.TreasuryCode != "" && payload.PIN != "" {
+			var exists bool
+			_ = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.treasury_login WHERE tres_code = $1);", payload.TreasuryCode).Scan(&exists)
+			if exists {
+				_, err = tx.Exec("UPDATE agartala.treasury_login SET pin = $1 WHERE tres_code = $2;", payload.PIN, payload.TreasuryCode)
+			} else {
+				_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", payload.TreasuryCode, payload.PIN)
+			}
+			if err != nil {
+				return fmt.Errorf("failed to update Treasury PIN: %w", err)
+			}
 		} else {
 			return fmt.Errorf("insufficient parameters for PIN update")
 		}
@@ -374,6 +386,62 @@ func ExecuteApproveServiceRequest(reviewerUsername string, requestID int64, rema
 			}
 			if err != nil {
 				return fmt.Errorf("failed to set DDO login PIN: %w", err)
+			}
+		}
+
+	case "CREATE_TREASURY":
+		if payload.TreasuryCode == "" {
+			return fmt.Errorf("Treasury Code is required")
+		}
+
+		var exists bool
+		_ = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.mm_treasury WHERE tres_code = $1);", payload.TreasuryCode).Scan(&exists)
+		if exists {
+			return fmt.Errorf("Treasury %s already exists", payload.TreasuryCode)
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO agartala.mm_treasury (tres_code, tres_name, vlc_tres_code)
+			VALUES ($1, $2, $3);`,
+			payload.TreasuryCode, payload.TreasuryName, payload.VLCCode,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create Treasury master profile: %w", err)
+		}
+
+		if payload.PIN != "" {
+			_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", payload.TreasuryCode, payload.PIN)
+			if err != nil {
+				return fmt.Errorf("failed to create Treasury login PIN: %w", err)
+			}
+		}
+
+	case "UPDATE_TREASURY":
+		if payload.TreasuryCode == "" {
+			return fmt.Errorf("Treasury Code is required")
+		}
+
+		_, err = tx.Exec(`
+			UPDATE agartala.mm_treasury 
+			SET tres_name = COALESCE(NULLIF($1, ''), tres_name),
+			    vlc_tres_code = COALESCE(NULLIF($2, ''), vlc_tres_code)
+			WHERE tres_code = $3;`,
+			payload.TreasuryName, payload.VLCCode, payload.TreasuryCode,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update Treasury master profile: %w", err)
+		}
+
+		if payload.PIN != "" {
+			var exists bool
+			_ = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.treasury_login WHERE tres_code = $1);", payload.TreasuryCode).Scan(&exists)
+			if exists {
+				_, err = tx.Exec("UPDATE agartala.treasury_login SET pin = $1 WHERE tres_code = $2;", payload.PIN, payload.TreasuryCode)
+			} else {
+				_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", payload.PIN, payload.TreasuryCode)
+			}
+			if err != nil {
+				return fmt.Errorf("failed to set Treasury login PIN: %w", err)
 			}
 		}
 

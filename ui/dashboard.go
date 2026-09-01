@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 	canManageUsers := (role == "admin")
 	canAssignSubscriberPin := db.EvaluateUserPermission(username, role, "can_assign_pin", role == "admin")
 	canViewDdoData := db.EvaluateUserPermission(username, role, "can_view_ddo", true)
+	canViewTreasuryData := db.EvaluateUserPermission(username, role, "can_view_treasury", true)
 
 	var activeDialogs []dialog.Dialog
 	var dialogsLock sync.Mutex
@@ -513,6 +515,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		"My Raised Requests",
 		"User Service Requests Queue",
 		"DDO Master Directory Registry",
+		"Treasury Master Directory Registry",
 		"Add New Fund Series Category",
 		"Manage Local User Profiles",
 		"Pending Registration Requests",
@@ -520,7 +523,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 		"App Distribution Version Setup",
 	}, func(tool string) {
 		resetInactivityTimer()
-		if role != "admin" && tool != "DDO Master Directory Registry" && tool != "Support Chat Portal" && tool != "Raise Service Request" && tool != "My Raised Requests" {
+		if role != "admin" && tool != "DDO Master Directory Registry" && tool != "Treasury Master Directory Registry" && tool != "Support Chat Portal" && tool != "Raise Service Request" && tool != "My Raised Requests" {
 			dialog.ShowError(fmt.Errorf("Security Constraint: Administrative levels required."), window)
 			return
 		}
@@ -684,6 +687,198 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			mainBorderLayout := container.NewBorder(topPanel, bottomPanel, nil, nil, tableSizer)
 
 			d := dialog.NewCustom("DDO Master Directory Registry Console", "Close Matrix Portal", mainBorderLayout, window)
+			d.Resize(fyne.NewSize(880, 500))
+			trackDialog(d)
+			d.Show()
+
+		case "Treasury Master Directory Registry":
+			if !canViewTreasuryData {
+				dialog.ShowError(fmt.Errorf("Access Denied"), window)
+				return
+			}
+
+			var tresGridData [][]string
+			var selectedTresRowIndex int = -1
+
+			tresSearchBox := widget.NewEntry()
+			tresSearchBox.SetPlaceHolder("Type Treasury Code or Name to filter directory matrix on-the-fly...")
+
+			tresTable := widget.NewTable(
+				func() (int, int) { return len(tresGridData), 4 },
+				func() fyne.CanvasObject {
+					lbl := widget.NewLabel("")
+					lbl.Wrapping = fyne.TextTruncate
+					return lbl
+				},
+				func(id widget.TableCellID, cell fyne.CanvasObject) {
+					if id.Row < len(tresGridData) && id.Col < 4 {
+						label := cell.(*widget.Label)
+						label.SetText(tresGridData[id.Row][id.Col])
+						if id.Row == 0 {
+							label.TextStyle = fyne.TextStyle{Bold: true}
+						} else {
+							label.TextStyle = fyne.TextStyle{}
+						}
+					}
+				},
+			)
+
+			tresTable.SetColumnWidth(0, 140)
+			tresTable.SetColumnWidth(1, 320)
+			tresTable.SetColumnWidth(2, 160)
+			tresTable.SetColumnWidth(3, 140)
+
+			syncTresGrid := func(filter string) {
+				profiles, _ := db.FetchAllTreasuryProfiles(filter)
+				matrix := [][]string{{
+					"Treasury Code", "Treasury Name", "VLC Treasury Code", "Gate Access PIN",
+				}}
+				for _, p := range profiles {
+					pinText := p[3]
+					if role != "admin" {
+						pinText = "****"
+					}
+					matrix = append(matrix, []string{p[0], p[1], p[2], pinText})
+				}
+				tresGridData = matrix
+				selectedTresRowIndex = -1
+				tresTable.UnselectAll()
+				tresTable.Refresh()
+			}
+
+			tresTable.OnSelected = func(id widget.TableCellID) {
+				resetInactivityTimer()
+				if id.Row == 0 {
+					tresTable.Unselect(id)
+					return
+				}
+				selectedTresRowIndex = id.Row
+			}
+
+			tresSearchBox.OnChanged = syncTresGrid
+
+			manageTresPinBtn := widget.NewButtonWithIcon("Update Treasury Profile Details", theme.DocumentCreateIcon(), func() {
+				resetInactivityTimer()
+				if selectedTresRowIndex == -1 {
+					dialog.ShowInformation("Selection Required", "Please click on a row within the Treasury matrix table grid first.", window)
+					return
+				}
+				if role != "admin" {
+					dialog.ShowError(fmt.Errorf("Security Constraint: Administrative authorization limits required."), window)
+					return
+				}
+
+				targetTresCode := tresGridData[selectedTresRowIndex][0]
+				currentName := tresGridData[selectedTresRowIndex][1]
+				currentVlc := tresGridData[selectedTresRowIndex][2]
+				currentPin := tresGridData[selectedTresRowIndex][3]
+				if currentPin == "****" {
+					currentPin = ""
+				}
+
+				nameInputField := widget.NewEntry()
+				nameInputField.SetText(currentName)
+				vlcInputField := widget.NewEntry()
+				vlcInputField.SetText(currentVlc)
+				pinInputField := widget.NewEntry()
+				pinInputField.SetText(currentPin)
+				pinInputField.SetPlaceHolder("Enter or generate 4-digit PIN")
+
+				autoGenerateBtn := widget.NewButtonWithIcon("Auto-Generate", theme.ViewRefreshIcon(), func() {
+					pinInputField.SetText(generateRandom4DigitPIN())
+				})
+
+				formItems := []*widget.FormItem{
+					widget.NewFormItem("Target Treasury Code", widget.NewLabelWithStyle(targetTresCode, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})),
+					widget.NewFormItem("Treasury Name", nameInputField),
+					widget.NewFormItem("VLC Treasury Code", vlcInputField),
+					widget.NewFormItem("Security Access PIN", pinInputField),
+					widget.NewFormItem("Action Control", autoGenerateBtn),
+				}
+
+				d := dialog.NewForm("Modify Treasury System Master Profile Records", "Save Changes", "Cancel", formItems, func(confirmed bool) {
+					if confirmed {
+						err := db.ExecuteUpdateTreasuryProfile(username, targetTresCode, nameInputField.Text, vlcInputField.Text, pinInputField.Text)
+						if err == nil {
+							dialog.ShowInformation("Profile Synced", "Treasury master data fields and security bounds saved successfully.", window)
+							syncTresGrid(tresSearchBox.Text)
+						} else {
+							dialog.ShowError(err, window)
+						}
+					}
+				}, window)
+				trackDialog(d)
+				d.Show()
+			})
+
+			addTresBtn := widget.NewButtonWithIcon("Add New Treasury", theme.ContentAddIcon(), func() {
+				resetInactivityTimer()
+				if role != "admin" {
+					dialog.ShowError(fmt.Errorf("Security Constraint: Administrative authorization limits required."), window)
+					return
+				}
+
+				codeEnt := widget.NewEntry()
+				codeEnt.SetPlaceHolder("Treasury Code (e.g. TR01)")
+				nameEnt := widget.NewEntry()
+				nameEnt.SetPlaceHolder("Treasury Full Name")
+				vlcEnt := widget.NewEntry()
+				vlcEnt.SetPlaceHolder("VLC Treasury Code")
+				pinEnt := widget.NewEntry()
+				pinEnt.SetPlaceHolder("Security PIN (4-Digits)")
+
+				autoGenBtn := widget.NewButtonWithIcon("Auto-Generate", theme.ViewRefreshIcon(), func() {
+					pinEnt.SetText(generateRandom4DigitPIN())
+				})
+
+				formItems := []*widget.FormItem{
+					widget.NewFormItem("Treasury Code", codeEnt),
+					widget.NewFormItem("Treasury Name", nameEnt),
+					widget.NewFormItem("VLC Treasury Code", vlcEnt),
+					widget.NewFormItem("Security Access PIN", pinEnt),
+					widget.NewFormItem("Action Control", autoGenBtn),
+				}
+
+				d := dialog.NewForm("Register New Treasury Master Configuration", "Create Treasury", "Cancel", formItems, func(confirmed bool) {
+					if confirmed {
+						if strings.TrimSpace(codeEnt.Text) == "" {
+							dialog.ShowError(fmt.Errorf("Treasury Code is required"), window)
+							return
+						}
+						err := db.ExecuteInsertTreasuryProfile(username, strings.TrimSpace(codeEnt.Text), strings.TrimSpace(nameEnt.Text), strings.TrimSpace(vlcEnt.Text), strings.TrimSpace(pinEnt.Text))
+						if err == nil {
+							dialog.ShowInformation("Treasury Created", "New Treasury master profile added successfully.", window)
+							syncTresGrid(tresSearchBox.Text)
+						} else {
+							dialog.ShowError(err, window)
+						}
+					}
+				}, window)
+				trackDialog(d)
+				d.Show()
+			})
+
+			requestTresBtn := widget.NewButtonWithIcon("Raise Treasury Request", theme.DocumentCreateIcon(), func() {
+				resetInactivityTimer()
+				prefillData := make(map[string]string)
+				reqType := "🏦 Request New Treasury Registration"
+				if selectedTresRowIndex != -1 {
+					prefillData["treasury_code"] = tresGridData[selectedTresRowIndex][0]
+					prefillData["treasury_name"] = tresGridData[selectedTresRowIndex][1]
+					prefillData["vlc_code"] = tresGridData[selectedTresRowIndex][2]
+					reqType = "📑 Request Treasury Profile Update"
+				}
+				ShowRaiseServiceRequestModal(window, username, role, reqType, prefillData)
+			})
+
+			syncTresGrid("")
+
+			topPanel := container.NewVBox(tresSearchBox)
+			bottomPanel := container.NewHBox(manageTresPinBtn, addTresBtn, requestTresBtn)
+			tableSizer := container.NewPadded(tresTable)
+			mainBorderLayout := container.NewBorder(topPanel, bottomPanel, nil, nil, tableSizer)
+
+			d := dialog.NewCustom("Treasury Master Directory Registry Console", "Close Matrix Portal", mainBorderLayout, window)
 			d.Resize(fyne.NewSize(880, 500))
 			trackDialog(d)
 			d.Show()
@@ -943,6 +1138,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			wCheck := widget.NewCheck("Enable database operational Write/Update profiles access capabilities", nil)
 			pCheck := widget.NewCheck("Enable subscriber registration and system security access PIN creations", nil)
 			vCheck := widget.NewCheck("Enable DDO Information Lookup Directories panels access bounds", nil)
+			tCheck := widget.NewCheck("Enable Treasury Information Lookup Directories panels access bounds", nil)
 
 			loadTargetRulesBtn := widget.NewButtonWithIcon("Query Scope Profile Rules", theme.SearchIcon(), func() {
 				scope := targetScopeEntry.Text
@@ -952,6 +1148,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				wCheck.SetChecked(db.EvaluateUserPermission(scope, scope, "can_write", scope == "operator"))
 				pCheck.SetChecked(db.EvaluateUserPermission(scope, scope, "can_assign_pin", false))
 				vCheck.SetChecked(db.EvaluateUserPermission(scope, scope, "can_view_ddo", true))
+				tCheck.SetChecked(db.EvaluateUserPermission(scope, scope, "can_view_treasury", true))
 			})
 
 			var permFormDialog dialog.Dialog
@@ -964,6 +1161,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				_ = db.ExecuteSavePermissionToggle(username, scope, "can_write", wCheck.Checked)
 				_ = db.ExecuteSavePermissionToggle(username, scope, "can_assign_pin", pCheck.Checked)
 				_ = db.ExecuteSavePermissionToggle(username, scope, "can_view_ddo", vCheck.Checked)
+				_ = db.ExecuteSavePermissionToggle(username, scope, "can_view_treasury", tCheck.Checked)
 
 				if permFormDialog != nil {
 					permFormDialog.Hide()
@@ -976,7 +1174,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				widget.NewLabelWithStyle("⚙️ Dynamic Granular Matrix Rule Setup Portal Context", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Italic: true}),
 				widget.NewLabel("Define permissions targeting roles universally, or specify isolated individual usernames for dynamic custom overrides:"),
 				scopeSelector, targetScopeEntry, loadTargetRulesBtn, widget.NewSeparator(),
-				wCheck, pCheck, vCheck, widget.NewSeparator(), savePermsBtn,
+				wCheck, pCheck, vCheck, tCheck, widget.NewSeparator(), savePermsBtn,
 			)
 			permFormDialog = dialog.NewCustom("Permissions Administration", "Close Console", modalContent, window)
 			permFormDialog.Resize(fyne.NewSize(580, 440))
