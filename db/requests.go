@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 )
@@ -48,6 +47,19 @@ func EnsureServiceRequestsTableExists() error {
 		return fmt.Errorf("database handle uninitialized")
 	}
 
+	// 1. Check if the table already exists and is accessible
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'service_requests');").Scan(&exists)
+	if err == nil && exists {
+		// Table already exists; do not run CREATE INDEX to avoid table ownership errors
+		return nil
+	}
+
+	// 2. Fallback quick check
+	if _, err := db.Exec("SELECT 1 FROM service_requests LIMIT 0;"); err == nil {
+		return nil
+	}
+
 	createTableQuery := `
 		CREATE TABLE IF NOT EXISTS service_requests (
 			id BIGSERIAL PRIMARY KEY,
@@ -61,15 +73,15 @@ func EnsureServiceRequestsTableExists() error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			reviewed_at TIMESTAMP WITH TIME ZONE
 		);
-		CREATE INDEX IF NOT EXISTS idx_service_requests_status ON service_requests(status);
-		CREATE INDEX IF NOT EXISTS idx_service_requests_requester ON service_requests(requester_username);
-		CREATE INDEX IF NOT EXISTS idx_service_requests_created ON service_requests(created_at DESC);
 	`
-	_, err := db.Exec(createTableQuery)
-	if err != nil {
-		log.Printf("Warning: Failed to ensure service_requests table: %v", err)
+	if _, err := db.Exec(createTableQuery); err != nil {
 		return err
 	}
+
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_service_requests_status ON service_requests(status);")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_service_requests_requester ON service_requests(requester_username);")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_service_requests_created ON service_requests(created_at DESC);")
+
 	return nil
 }
 
@@ -243,12 +255,16 @@ func ExecuteApproveServiceRequest(reviewerUsername string, requestID int64, rema
 				return fmt.Errorf("failed to update DDO PIN: %w", err)
 			}
 		} else if payload.TreasuryCode != "" && payload.PIN != "" {
+			_, lTable, _, _, _, lCode, lPin := getTreasuryQueryParts()
 			var exists bool
-			_ = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.treasury_login WHERE tres_code = $1);", payload.TreasuryCode).Scan(&exists)
+			checkLoginQuery := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($1)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($1, '0')));", lTable, lCode, lCode)
+			_ = tx.QueryRow(checkLoginQuery, payload.TreasuryCode).Scan(&exists)
 			if exists {
-				_, err = tx.Exec("UPDATE agartala.treasury_login SET pin = $1 WHERE tres_code = $2;", payload.PIN, payload.TreasuryCode)
+				updateLoginQuery := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($2)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($2, '0'));", lTable, lPin, lCode, lCode)
+				_, err = tx.Exec(updateLoginQuery, payload.PIN, payload.TreasuryCode)
 			} else {
-				_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", payload.TreasuryCode, payload.PIN)
+				insertLoginQuery := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES ($1, $2);", lTable, lCode, lPin)
+				_, err = tx.Exec(insertLoginQuery, payload.TreasuryCode, payload.PIN)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to update Treasury PIN: %w", err)
@@ -394,23 +410,28 @@ func ExecuteApproveServiceRequest(reviewerUsername string, requestID int64, rema
 			return fmt.Errorf("Treasury Code is required")
 		}
 
+		tTable, lTable, tCode, tName, tVlc, lCode, lPin := getTreasuryQueryParts()
+
 		var exists bool
-		_ = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.mm_treasury WHERE tres_code = $1);", payload.TreasuryCode).Scan(&exists)
+		checkQuery := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($1)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($1, '0')));", tTable, tCode, tCode)
+		_ = tx.QueryRow(checkQuery, payload.TreasuryCode).Scan(&exists)
 		if exists {
 			return fmt.Errorf("Treasury %s already exists", payload.TreasuryCode)
 		}
 
-		_, err = tx.Exec(`
-			INSERT INTO agartala.mm_treasury (tres_code, tres_name, vlc_tres_code)
+		insertMasterQuery := fmt.Sprintf(`
+			INSERT INTO %s (%s, %s, %s)
 			VALUES ($1, $2, $3);`,
-			payload.TreasuryCode, payload.TreasuryName, payload.VLCCode,
+			tTable, tCode, tName, tVlc,
 		)
+		_, err = tx.Exec(insertMasterQuery, payload.TreasuryCode, payload.TreasuryName, payload.VLCCode)
 		if err != nil {
 			return fmt.Errorf("failed to create Treasury master profile: %w", err)
 		}
 
 		if payload.PIN != "" {
-			_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", payload.TreasuryCode, payload.PIN)
+			insertLoginQuery := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES ($1, $2);", lTable, lCode, lPin)
+			_, err = tx.Exec(insertLoginQuery, payload.TreasuryCode, payload.PIN)
 			if err != nil {
 				return fmt.Errorf("failed to create Treasury login PIN: %w", err)
 			}
@@ -421,24 +442,33 @@ func ExecuteApproveServiceRequest(reviewerUsername string, requestID int64, rema
 			return fmt.Errorf("Treasury Code is required")
 		}
 
-		_, err = tx.Exec(`
-			UPDATE agartala.mm_treasury 
-			SET tres_name = COALESCE(NULLIF($1, ''), tres_name),
-			    vlc_tres_code = COALESCE(NULLIF($2, ''), vlc_tres_code)
-			WHERE tres_code = $3;`,
-			payload.TreasuryName, payload.VLCCode, payload.TreasuryCode,
+		tTable, lTable, tCode, tName, tVlc, lCode, lPin := getTreasuryQueryParts()
+
+		updateMasterQuery := fmt.Sprintf(`
+			UPDATE %s 
+			SET %s = COALESCE(NULLIF($1, ''), %s),
+			    %s = COALESCE(NULLIF($2, ''), %s)
+			WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($3)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($3, '0'));`,
+			tTable,
+			tName, tName,
+			tVlc, tVlc,
+			tCode, tCode,
 		)
+		_, err = tx.Exec(updateMasterQuery, payload.TreasuryName, payload.VLCCode, payload.TreasuryCode)
 		if err != nil {
 			return fmt.Errorf("failed to update Treasury master profile: %w", err)
 		}
 
 		if payload.PIN != "" {
 			var exists bool
-			_ = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.treasury_login WHERE tres_code = $1);", payload.TreasuryCode).Scan(&exists)
+			checkLoginQuery := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($1)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($1, '0')));", lTable, lCode, lCode)
+			_ = tx.QueryRow(checkLoginQuery, payload.TreasuryCode).Scan(&exists)
 			if exists {
-				_, err = tx.Exec("UPDATE agartala.treasury_login SET pin = $1 WHERE tres_code = $2;", payload.PIN, payload.TreasuryCode)
+				updateLoginQuery := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($2)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($2, '0'));", lTable, lPin, lCode, lCode)
+				_, err = tx.Exec(updateLoginQuery, payload.PIN, payload.TreasuryCode)
 			} else {
-				_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", payload.PIN, payload.TreasuryCode)
+				insertLoginQuery := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES ($1, $2);", lTable, lCode, lPin)
+				_, err = tx.Exec(insertLoginQuery, payload.TreasuryCode, payload.PIN)
 			}
 			if err != nil {
 				return fmt.Errorf("failed to set Treasury login PIN: %w", err)

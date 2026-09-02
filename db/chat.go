@@ -2,7 +2,6 @@ package db
 
 import (
 	"fmt"
-	"log"
 	"time"
 )
 
@@ -30,6 +29,19 @@ func EnsureChatTableExists() error {
 		return fmt.Errorf("database handle uninitialized")
 	}
 
+	// 1. Check if the table already exists and is accessible
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages');").Scan(&exists)
+	if err == nil && exists {
+		// Table already exists; do not run CREATE INDEX to prevent ownership/privilege warnings
+		return nil
+	}
+
+	// 2. Fallback quick check
+	if _, err := db.Exec("SELECT 1 FROM chat_messages LIMIT 0;"); err == nil {
+		return nil
+	}
+
 	createTableQuery := `
 		CREATE TABLE IF NOT EXISTS chat_messages (
 			id BIGSERIAL PRIMARY KEY,
@@ -39,14 +51,14 @@ func EnsureChatTableExists() error {
 			is_read BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
-		CREATE INDEX IF NOT EXISTS idx_chat_messages_users ON chat_messages(sender_username, receiver_username);
-		CREATE INDEX IF NOT EXISTS idx_chat_messages_receiver_read ON chat_messages(receiver_username, is_read);
 	`
-	_, err := db.Exec(createTableQuery)
-	if err != nil {
-		log.Printf("Warning: Failed to ensure chat_messages table: %v", err)
+	if _, err := db.Exec(createTableQuery); err != nil {
 		return err
 	}
+
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_users ON chat_messages(sender_username, receiver_username);")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_chat_messages_receiver_read ON chat_messages(receiver_username, is_read);")
+
 	return nil
 }
 

@@ -66,11 +66,6 @@ func InitDatabase() (*sql.DB, error) {
 		log.Printf("Notice: Service requests table initialization check: %v", reqErr)
 	}
 
-	// Ensure treasury schema and tables are present
-	if tresErr := EnsureTreasuryTablesExist(); tresErr != nil {
-		log.Printf("Notice: Treasury table initialization check: %v", tresErr)
-	}
-
 	return db, nil
 }
 

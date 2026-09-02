@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // ExecuteInsertAuditLog writes internal operational logs to the system database
@@ -435,57 +436,129 @@ func ExecuteUpdateDDOProfile(operator, ddoCode, designation, phone, email, pin s
 	return tx.Commit()
 }
 
-// EnsureTreasuryTablesExist ensures MM_TREASURY and TREASURY_LOGIN tables exist
-func EnsureTreasuryTablesExist() error {
+// getTreasuryQueryParts inspects the actual database catalog to find exact tables and columns for Treasury & Login
+func getTreasuryQueryParts() (treasuryTable, treasuryLoginTable, tresCodeCol, tresNameCol, vlcCol, loginCodeCol, loginPinCol string) {
+	// Robust defaults matching the agartala schema
+	treasuryTable = "agartala.mm_treasury"
+	treasuryLoginTable = "agartala.treasure_login"
+	tresCodeCol = "tres_code"
+	tresNameCol = "tres_name"
+	vlcCol = "vlc_tres_code"
+	loginCodeCol = "treasure_code"
+	loginPinCol = "pin"
+
 	if db == nil {
-		return fmt.Errorf("database handle uninitialized")
+		return
 	}
-	schemaQuery := `
-		CREATE TABLE IF NOT EXISTS agartala.mm_treasury (
-			tres_code VARCHAR(50) PRIMARY KEY,
-			tres_name VARCHAR(200),
-			vlc_tres_code VARCHAR(50)
-		);
-		CREATE TABLE IF NOT EXISTS agartala.treasury_login (
-			tres_code VARCHAR(50) PRIMARY KEY,
-			pin VARCHAR(50)
-		);
-	`
-	_, err := db.Exec(schemaQuery)
-	return err
+
+	// 1. Detect mm_treasury table & column names
+	tRows, err := db.Query(`
+		SELECT table_schema, table_name, column_name 
+		FROM information_schema.columns 
+		WHERE LOWER(table_name) IN ('mm_treasury', 'mm_treasuries', 'treasury_master')
+		ORDER BY (LOWER(table_schema) = 'agartala') DESC, table_schema ASC;
+	`)
+	if err == nil {
+		var selectedTbl string
+		for tRows.Next() {
+			var sch, tbl, col string
+			if tRows.Scan(&sch, &tbl, &col) == nil {
+				fullTbl := fmt.Sprintf("%s.%s", sch, tbl)
+				if selectedTbl == "" {
+					selectedTbl = fullTbl
+					treasuryTable = fullTbl
+				}
+				if fullTbl == selectedTbl {
+					colLower := strings.ToLower(col)
+					switch colLower {
+					case "tres_code", "treasury_code", "code":
+						tresCodeCol = col
+					case "tres_name", "treasury_name", "name":
+						tresNameCol = col
+					case "vlc_tres_code", "vlc_treasury_code", "vlc_code":
+						vlcCol = col
+					}
+				}
+			}
+		}
+		_ = tRows.Err()
+		tRows.Close()
+	}
+
+	// 2. Detect treasure_login / treasury_login table & column names
+	lRows, err := db.Query(`
+		SELECT table_schema, table_name, column_name 
+		FROM information_schema.columns 
+		WHERE LOWER(table_name) IN ('treasure_login', 'treasury_login', 'mm_treasury_login')
+		ORDER BY (LOWER(table_schema) = 'agartala') DESC, (LOWER(table_name) = 'treasure_login') DESC;
+	`)
+	if err == nil {
+		var selectedLoginTbl string
+		for lRows.Next() {
+			var sch, tbl, col string
+			if lRows.Scan(&sch, &tbl, &col) == nil {
+				fullTbl := fmt.Sprintf("%s.%s", sch, tbl)
+				if selectedLoginTbl == "" {
+					selectedLoginTbl = fullTbl
+					treasuryLoginTable = fullTbl
+				}
+				if fullTbl == selectedLoginTbl {
+					colLower := strings.ToLower(col)
+					switch colLower {
+					case "treasure_code", "tres_code", "treasury_code", "code", "username":
+						loginCodeCol = col
+					case "pin", "password", "gate_pin", "pin_no":
+						loginPinCol = col
+					}
+				}
+			}
+		}
+		_ = lRows.Err()
+		lRows.Close()
+	}
+
+	return
 }
 
-// FetchAllTreasuryProfiles fetches all Treasury records with PIN from MM_TREASURY and TREASURY_LOGIN
+// FetchAllTreasuryProfiles fetches all Treasury records with PIN from MM_TREASURY and TREASURE_LOGIN
 func FetchAllTreasuryProfiles(filterCode string) ([][]string, error) {
 	directoryRows := [][]string{}
 	if db == nil {
 		return directoryRows, fmt.Errorf("database session handle context uninitialized")
 	}
 
-	_ = EnsureTreasuryTablesExist()
+	tTable, lTable, tCode, tName, tVlc, lCode, lPin := getTreasuryQueryParts()
 
-	baseQuery := `
+	baseQuery := fmt.Sprintf(`
 		SELECT 
-			COALESCE(t.tres_code, ''), 
-			COALESCE(t.tres_name, 'N/A'), 
-			COALESCE(t.vlc_tres_code, 'N/A'), 
-			COALESCE(l.pin, 'N/A') AS security_pin
-		FROM agartala.mm_treasury t
-		LEFT JOIN agartala.treasury_login l ON t.tres_code = l.tres_code`
+			COALESCE(t.%s::text, COALESCE(l.%s::text, '')), 
+			COALESCE(t.%s::text, 'N/A'), 
+			COALESCE(t.%s::text, 'N/A'), 
+			COALESCE(NULLIF(l.%s::text, ''), 'N/A') AS security_pin
+		FROM %s t
+		FULL OUTER JOIN %s l ON TRIM(LOWER(t.%s::text)) = TRIM(LOWER(l.%s::text))`,
+		tCode, lCode,
+		tName,
+		tVlc,
+		lPin,
+		tTable,
+		lTable,
+		tCode, lCode,
+	)
 
 	var rows *sql.Rows
 	var err error
 
 	if filterCode != "" {
-		queryStr := baseQuery + " WHERE t.tres_code ILIKE $1 OR t.tres_name ILIKE $1 ORDER BY t.tres_code ASC LIMIT 100;"
+		queryStr := fmt.Sprintf(`%s WHERE t.%s ILIKE $1 OR t.%s ILIKE $1 OR l.%s ILIKE $1 OR t.%s ILIKE $1 ORDER BY COALESCE(t.%s, l.%s) ASC LIMIT 150;`, baseQuery, tCode, tName, lCode, tVlc, tCode, lCode)
 		rows, err = db.Query(queryStr, "%"+filterCode+"%")
 	} else {
-		queryStr := baseQuery + " ORDER BY t.tres_code ASC LIMIT 100;"
+		queryStr := fmt.Sprintf(`%s ORDER BY COALESCE(t.%s, l.%s) ASC LIMIT 150;`, baseQuery, tCode, lCode)
 		rows, err = db.Query(queryStr)
 	}
 
 	if err != nil {
-		return directoryRows, err
+		return directoryRows, fmt.Errorf("treasury query error on %s / %s: %w", tTable, lTable, err)
 	}
 	defer rows.Close()
 
@@ -494,6 +567,9 @@ func FetchAllTreasuryProfiles(filterCode string) ([][]string, error) {
 		if err := rows.Scan(&code, &name, &vlc, &pin); err == nil {
 			directoryRows = append(directoryRows, []string{code, name, vlc, pin})
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return directoryRows, err
 	}
 	return directoryRows, nil
 }
@@ -504,17 +580,28 @@ func FetchTreasuryDetails(tresCode string) (map[string]string, error) {
 		return nil, fmt.Errorf("database handle uninitialized")
 	}
 
-	_ = EnsureTreasuryTablesExist()
+	tTable, lTable, tCode, tName, tVlc, lCode, lPin := getTreasuryQueryParts()
 
-	queryStr := `
+	queryStr := fmt.Sprintf(`
 		SELECT 
-			COALESCE(t.tres_code, ''), 
-			COALESCE(t.tres_name, 'N/A'), 
-			COALESCE(t.vlc_tres_code, 'N/A'),
-			COALESCE(l.pin, 'N/A') AS security_pin
-		FROM agartala.mm_treasury t
-		LEFT JOIN agartala.treasury_login l ON t.tres_code = l.tres_code
-		WHERE t.tres_code = $1;`
+			COALESCE(t.%s::text, COALESCE(l.%s::text, '')), 
+			COALESCE(t.%s::text, 'N/A'), 
+			COALESCE(t.%s::text, 'N/A'),
+			COALESCE(NULLIF(l.%s::text, ''), 'N/A') AS security_pin
+		FROM %s t
+		FULL OUTER JOIN %s l ON TRIM(LOWER(t.%s::text)) = TRIM(LOWER(l.%s::text))
+		WHERE TRIM(LOWER(t.%s::text)) = TRIM(LOWER($1)) OR TRIM(LOWER(l.%s::text)) = TRIM(LOWER($1))
+		   OR LTRIM(TRIM(t.%s::text), '0') = LTRIM(TRIM($1, '0')) OR LTRIM(TRIM(l.%s::text), '0') = LTRIM(TRIM($1, '0'));`,
+		tCode, lCode,
+		tName,
+		tVlc,
+		lPin,
+		tTable,
+		lTable,
+		tCode, lCode,
+		tCode, lCode,
+		tCode, lCode,
+	)
 
 	var code, name, vlcCode, pin string
 	err := db.QueryRow(queryStr, tresCode).Scan(&code, &name, &vlcCode, &pin)
@@ -540,7 +627,7 @@ func ExecuteUpdateTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin
 		return fmt.Errorf("database handle uninitialized")
 	}
 
-	_ = EnsureTreasuryTablesExist()
+	tTable, lTable, tCode, tName, tVlc, lCode, lPin := getTreasuryQueryParts()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -548,26 +635,45 @@ func ExecuteUpdateTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
-		UPDATE agartala.mm_treasury 
-		SET tres_name = $1, vlc_tres_code = $2 
-		WHERE tres_code = $3;`,
-		tresName, vlcTresCode, tresCode,
-	)
-	if err != nil {
-		return fmt.Errorf("treasury master update failure: %w", err)
+	var existsInMaster bool
+	checkMasterQuery := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($1)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($1, '0')));", tTable, tCode, tCode)
+	_ = tx.QueryRow(checkMasterQuery, tresCode).Scan(&existsInMaster)
+	if existsInMaster {
+		updateMasterQuery := fmt.Sprintf(`
+			UPDATE %s 
+			SET %s = $1, %s = $2 
+			WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($3)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($3, '0'));`,
+			tTable, tName, tVlc, tCode, tCode,
+		)
+		_, err = tx.Exec(updateMasterQuery, tresName, vlcTresCode, tresCode)
+		if err != nil {
+			return fmt.Errorf("treasury master update failure: %w", err)
+		}
+	} else {
+		insertMasterQuery := fmt.Sprintf(`
+			INSERT INTO %s (%s, %s, %s)
+			VALUES ($1, $2, $3);`,
+			tTable, tCode, tName, tVlc,
+		)
+		_, err = tx.Exec(insertMasterQuery, tresCode, tresName, vlcTresCode)
+		if err != nil {
+			return fmt.Errorf("treasury master insert failure: %w", err)
+		}
 	}
 
 	if pin != "" {
-		var exists bool
-		err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.treasury_login WHERE tres_code = $1);", tresCode).Scan(&exists)
+		var existsInLogin bool
+		checkLoginQuery := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($1)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($1, '0')));", lTable, lCode, lCode)
+		err = tx.QueryRow(checkLoginQuery, tresCode).Scan(&existsInLogin)
 		if err != nil {
 			return err
 		}
-		if exists {
-			_, err = tx.Exec("UPDATE agartala.treasury_login SET pin = $1 WHERE tres_code = $2;", pin, tresCode)
+		if existsInLogin {
+			updateLoginQuery := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($2)) OR LTRIM(TRIM(%s::text), '0') = LTRIM(TRIM($2, '0'));", lTable, lPin, lCode, lCode)
+			_, err = tx.Exec(updateLoginQuery, pin, tresCode)
 		} else {
-			_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", tresCode, pin)
+			insertLoginQuery := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES ($1, $2);", lTable, lCode, lPin)
+			_, err = tx.Exec(insertLoginQuery, tresCode, pin)
 		}
 		if err != nil {
 			return fmt.Errorf("treasury gate access PIN update failure: %w", err)
@@ -588,7 +694,7 @@ func ExecuteInsertTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin
 		return fmt.Errorf("database handle uninitialized")
 	}
 
-	_ = EnsureTreasuryTablesExist()
+	tTable, lTable, tCode, tName, tVlc, lCode, lPin := getTreasuryQueryParts()
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -597,7 +703,8 @@ func ExecuteInsertTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin
 	defer tx.Rollback()
 
 	var exists bool
-	err = tx.QueryRow("SELECT EXISTS(SELECT 1 FROM agartala.mm_treasury WHERE tres_code = $1);", tresCode).Scan(&exists)
+	checkQuery := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE TRIM(LOWER(%s::text)) = TRIM(LOWER($1)));", tTable, tCode)
+	err = tx.QueryRow(checkQuery, tresCode).Scan(&exists)
 	if err != nil {
 		return err
 	}
@@ -605,17 +712,19 @@ func ExecuteInsertTreasuryProfile(operator, tresCode, tresName, vlcTresCode, pin
 		return fmt.Errorf("treasury with code %s already exists in the registry", tresCode)
 	}
 
-	_, err = tx.Exec(`
-		INSERT INTO agartala.mm_treasury (tres_code, tres_name, vlc_tres_code)
+	insertMasterQuery := fmt.Sprintf(`
+		INSERT INTO %s (%s, %s, %s)
 		VALUES ($1, $2, $3);`,
-		tresCode, tresName, vlcTresCode,
+		tTable, tCode, tName, tVlc,
 	)
+	_, err = tx.Exec(insertMasterQuery, tresCode, tresName, vlcTresCode)
 	if err != nil {
 		return fmt.Errorf("treasury master creation failure: %w", err)
 	}
 
 	if pin != "" {
-		_, err = tx.Exec("INSERT INTO agartala.treasury_login (tres_code, pin) VALUES ($1, $2);", tresCode, pin)
+		insertLoginQuery := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES ($1, $2);", lTable, lCode, lPin)
+		_, err = tx.Exec(insertLoginQuery, tresCode, pin)
 		if err != nil {
 			return fmt.Errorf("treasury login PIN creation failure: %w", err)
 		}

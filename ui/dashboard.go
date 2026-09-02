@@ -729,13 +729,16 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 			tresTable.SetColumnWidth(3, 140)
 
 			syncTresGrid := func(filter string) {
-				profiles, _ := db.FetchAllTreasuryProfiles(filter)
+				profiles, err := db.FetchAllTreasuryProfiles(filter)
+				if err != nil {
+					dialog.ShowError(err, window)
+				}
 				matrix := [][]string{{
 					"Treasury Code", "Treasury Name", "VLC Treasury Code", "Gate Access PIN",
 				}}
 				for _, p := range profiles {
 					pinText := p[3]
-					if role != "admin" {
+					if role != "admin" && pinText != "N/A" {
 						pinText = "****"
 					}
 					matrix = append(matrix, []string{p[0], p[1], p[2], pinText})
@@ -772,7 +775,7 @@ func LaunchOperationalDashboard(app fyne.App, window fyne.Window, username strin
 				currentName := tresGridData[selectedTresRowIndex][1]
 				currentVlc := tresGridData[selectedTresRowIndex][2]
 				currentPin := tresGridData[selectedTresRowIndex][3]
-				if currentPin == "****" {
+				if currentPin == "****" || currentPin == "N/A" {
 					currentPin = ""
 				}
 
